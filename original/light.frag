@@ -10,9 +10,7 @@ uniform vec3 lightColor;
 
 void main()
 {
-
 	// Output color = red 
     vec2 d = fragPos - (lightPos * 0.0008);
 	color = 0.3 * lightColor / (1 + 10 * (d.x * d.x + d.y * d.y ));
-
 }
