@@ -66,8 +66,9 @@ initGLStuff = do
 
     light1 <- makeLight (Vector3 0 0 1.0) (Vector2 0 0) example
     light2 <- makeLight (Vector3 0.2 0.7 0.2) (Vector2 700 (-700)) example
-    light3 <- makeLight (Vector3 1.0 0 1.0) (Vector2 (-950) 975) example
-    let lights = [light1, light2, light3]
+    light3 <- makeLight (Vector3 0.2 0 0.2) (Vector2 (-950) 975) example
+    light4 <- makeLight (Vector3 0.5 0 0.0) (Vector2 950 975) example
+    let lights = [light1, light2, light3, light4]
 
     let walls = map fromIntegral $ concat $ map segmentToLine example
 
