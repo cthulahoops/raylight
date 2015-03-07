@@ -21,11 +21,8 @@ data GLIds = GLIds {
     progLight :: !GLuint,
     vertexArrayId :: !GLuint,
     wallBufferId  :: !GLuint,
-    lightBufferId1 :: !GLuint,
-    lightBufferId2 :: !GLuint,
     vertexCount1 :: Int,
-    vertexCount2 :: Int,
-    vertexCount3 :: Int,
+    lights :: [RayLight],
     lightPosUniform :: !GLint,
     lightColorUniform :: !GLint}
 
@@ -41,6 +38,21 @@ fillNewBuffer bufferData = do
                  (ptr :: Ptr GLfloat) gl_STATIC_DRAW
   return id
 
+data RayLight = RayLight {
+        lightPos   :: Vector2 Integer,
+        lightColor :: Vector3 GLfloat,
+        lightVertices :: !(Int, GLuint)
+    } 
+    deriving (Show)
+
+makeLight :: Vector3 GLfloat -> Vector2 Integer -> [Segment] -> IO RayLight
+makeLight color position segments = do
+    let segments' = map (segmentTranslate $ neg position) segments
+    let lit = map fromIntegral $ concat $ map (segmentToTriangle position) $ litSegments segments'
+    let count = length lit
+    buffer <- fillNewBuffer lit
+    return $ RayLight {lightPos = position, lightColor = color, lightVertices = (count, buffer)}
+
 initGLStuff = do
   glClearColor 0.02 0.02 0.05 0
   progScene <- loadProgram "simple.vert" "simple.frag"
@@ -52,68 +64,54 @@ initGLStuff = do
 
   lightPosUniform <- getUniform progLight "lightPos"
   lightColorUniform <- getUniform progLight "lightColor"
-
- -- glBlendFunc gl_ZERO gl_DST_COLOR
-  let light1 = Vector2 0 0
-  let light2 = Vector2 700 (-700)
-  let segments1 = map (segmentTranslate $ neg light1) $ example
-  let segments2 = map (segmentTranslate $ neg light2) $ example
+  
+  light1 <- makeLight (Vector3 0 0 1.0) (Vector2 0 0) example
+  light2 <- makeLight (Vector3 0.2 0.7 0.2) (Vector2 700 (-700)) example
+  light3 <- makeLight (Vector3 1.0 0 1.0) (Vector2 (-950) 975) example
+  let lights = [light1, light2, light3]
 
   let walls = map fromIntegral $ concat $ map segmentToLine example
 
-  let lit1 = map fromIntegral $ concat $ map (segmentToTriangle light1) $ litSegments segments1
-  let lit2 = map fromIntegral $ concat $ map (segmentToTriangle light2) $ litSegments segments2
-
   let vertexCount1 = length walls
-  let vertexCount2 = length lit1
-  let vertexCount3 = length lit2
 
   wallBufferId  <- fillNewBuffer walls
-  lightBufferId1 <- fillNewBuffer lit1
-  lightBufferId2 <- fillNewBuffer lit2
 
   return GLIds{..}
 
-mainLoop window GLIds{..} = fix $ \loop -> do
+uniformV2 :: GLint -> Vector2 Integer -> IO ()
+uniformV2 uniform (Vector2 x y) = glUniform2f uniform (fromIntegral x) (fromIntegral y)
+
+uniformV3 :: GLint -> Vector3 GLfloat -> IO ()
+uniformV3 uniform (Vector3 x y z) = glUniform3f uniform x y z
+
+drawLight :: GLIds -> RayLight -> IO ()
+drawLight GLIds{..} RayLight{..} = do
+    uniformV2 lightPosUniform lightPos
+    uniformV3 lightColorUniform lightColor
+    let (count, bufferId) = lightVertices
+    glBindBuffer gl_ARRAY_BUFFER bufferId
+    glVertexAttribPointer 0  -- attribute 0 in the shader
+                          3  -- we draw 3 vertices
+                          gl_FLOAT  -- coordinates type
+                          (fromBool False)  -- normalized?
+                          0  -- stride
+                          nullPtr  -- vertex buffer offset
+    glDrawArrays gl_TRIANGLES 0 (fromIntegral count)
+    
+mainLoop window glids@GLIds{..} = fix $ \loop -> do
   glClear gl_COLOR_BUFFER_BIT
   glEnableVertexAttribArray 0  -- 1st attribute: vertices
 
   glBlendFunc gl_ONE gl_ONE
 
   glUseProgram progLight
-  glUniform2f lightPosUniform 0 0
-  glUniform3f lightColorUniform 0.0 0.0 1.0
-  glBindBuffer gl_ARRAY_BUFFER lightBufferId1
-  glVertexAttribPointer 0  -- attribute 0 in the shader
-                        3  -- we draw 3 vertices
-                        gl_FLOAT  -- coordinates type
-                        (fromBool False)  -- normalized?
-                        0  -- stride
-                        nullPtr  -- vertex buffer offset
-  glDrawArrays gl_TRIANGLES 0 (fromIntegral vertexCount2)  -- from 0, 3 vertices
-
-  glUniform2f lightPosUniform 700 (-700)
-  glUniform3f lightColorUniform 0.2 0.7 0.2
-  glBindBuffer gl_ARRAY_BUFFER lightBufferId2
-  glVertexAttribPointer 0  -- attribute 0 in the shader
-                        3  -- we draw 3 vertices
-                        gl_FLOAT  -- coordinates type
-                        (fromBool False)  -- normalized?
-                        0  -- stride
-                        nullPtr  -- vertex buffer offset
-  glDrawArrays gl_TRIANGLES 0 (fromIntegral vertexCount3)  -- from 0, 3 vertices
+  mapM_ (drawLight glids) lights
 
   glUseProgram progScene
   glBlendFunc gl_ONE gl_ZERO
   glBindBuffer gl_ARRAY_BUFFER wallBufferId
-  glVertexAttribPointer 0  -- attribute 0 in the shader
-                        3  -- we draw 3 vertices
-                        gl_FLOAT  -- coordinates type
-                        (fromBool False)  -- normalized?
-                        0  -- stride
-                        nullPtr  -- vertex buffer offset
-  glDrawArrays gl_LINES 0 (fromIntegral vertexCount1)  -- from 0, 3 vertices
-
+  glVertexAttribPointer 0 3 gl_FLOAT (fromBool False) 0 nullPtr 
+  glDrawArrays gl_LINES 0 (fromIntegral vertexCount1)
 
   glDisableVertexAttribArray 0
   W.swapBuffers window
