@@ -24,9 +24,7 @@ bitmapLoad f = do
   handle <- openBinaryFile f ReadMode
   hSeek handle RelativeSeek 18
   width  <- readInt handle
-  print width
   height <- readInt handle
-  print height
   planes <- readShort handle
   bpp    <- readShort handle
   let size = width * height * (fromIntegral bpp `div` 8)
@@ -41,18 +39,12 @@ bitmapLoadRaw f = do
   handle <- openBinaryFile f ReadMode
   hSeek handle RelativeSeek 18
   width  <- readInt handle
-  print width
   height <- readInt handle
-  print height
   planes <- readShort handle
-  print planes
   bpp    <- readShort handle
-  print bpp
   let size = width * height * (fromIntegral bpp `div` 8)
-  print size
   hSeek handle RelativeSeek 24
   bgrBytes <- (readBytes handle (fromIntegral size) :: IO (Ptr Word8))
-  debug bgrBytes
 --  rgbBytes <- bgr2rgb bgrBytes (fromIntegral size)
   return (fromIntegral width, fromIntegral height, bgrBytes)
 
