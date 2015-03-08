@@ -20,14 +20,28 @@ data GLIds = GLIds {
     progLight :: !GLuint,
     vertexArrayId :: !GLuint,
     wallBufferId  :: !GLuint,
+    testBufferId  :: !GLuint,
     vertexCount1 :: Int,
     lights :: [RayLight],
     lightPosUniform :: !GLint,
-    lightColorUniform :: !GLint}
+    lightColorUniform :: !GLint,
+    ambientTexture :: !GLuint,
+    ambientUniform :: !GLint,
+    colorUniform :: !GLint}
 
 segmentToTriangle (Vector2 x0 y0) (Segment (Vector2 x1 y1) (Vector2 x2 y2)) = [x0, y0, 0, x1 + x0, y1 + y0, 0, x2 + x0, y2 + y0, 0]
 
 segmentToLine (Segment (Vector2 x1 y1) (Vector2 x2 y2)) = [x1, y1, 0, x2, y2, 0]
+
+segmentToBox segment@(Segment p1 p2) = [fp1 ^+ norm1, fp2 ^+ norm1, fp2 ^+ norm2, fp1 ^+ norm2]
+    where fp1   = fmap fromIntegral p1
+          fp2   = fmap fromIntegral p2
+          norm1 = 4 ^* norm (Vector2 dy (-dx))
+          norm2 = 4 ^* norm (Vector2 (-dy) dx)
+          Vector2 dx dy = segmentDirection segment
+
+toVertexList :: [Vector2 GLfloat] -> [GLfloat]
+toVertexList vs = concat $ map (\(Vector2 x y) -> [x, y, 0]) vs
 
 fillNewBuffer bufferData = do
     id <- withNewPtr (glGenBuffers 1)
@@ -52,10 +66,49 @@ makeLight color position segments = do
     buffer <- fillNewBuffer lit
     return $ RayLight {lightPos = position, lightColor = color, lightVertices = (count, buffer)}
 
+createFrameBuffer :: GLint -> IO (GLuint, GLuint)
+createFrameBuffer size = do
+    -- Create a texture as a render target
+    fb <- withNewPtr (glGenFramebuffers 1)
+    glBindFramebuffer gl_FRAMEBUFFER fb
+    putStrLn $ "Framebuffer: " ++ show fb
+  
+    -- The texture we're going to render to
+    renderedTexture <- withNewPtr (glGenTextures 1)
+    -- "Bind" the newly created texture : all future texture functions will modify this texture
+    glBindTexture gl_TEXTURE_2D renderedTexture
+
+    -- Give an empty image to OpenGL ( the last "0" )
+    glTexImage2D gl_TEXTURE_2D 0 3 size size 0 gl_RGB gl_UNSIGNED_BYTE nullPtr
+
+    -- Poor filtering. Needed !
+    glTexParameteri gl_TEXTURE_2D gl_TEXTURE_MAG_FILTER (fromIntegral gl_NEAREST)
+    glTexParameteri gl_TEXTURE_2D gl_TEXTURE_MIN_FILTER (fromIntegral gl_NEAREST)
+
+    -- The depth buffer
+    depthBuffer <- withNewPtr (glGenRenderbuffers 1)
+    glBindRenderbuffer gl_RENDERBUFFER depthBuffer
+
+    glRenderbufferStorage gl_RENDERBUFFER gl_DEPTH_COMPONENT size size
+    glFramebufferRenderbuffer gl_FRAMEBUFFER gl_DEPTH_ATTACHMENT gl_RENDERBUFFER depthBuffer
+
+    -- Set "renderedTexture" as our colour attachement #0
+    glFramebufferTexture gl_FRAMEBUFFER gl_COLOR_ATTACHMENT0 renderedTexture 0
+     
+    -- Set the list of draw buffers.
+    --  p <- malloc
+    --  GLenum DrawBuffers[1] = {GL_COLOR_ATTACHMENT0};
+    --  glDrawBuffers(1, DrawBuffers); // "1" is the size of DrawBuffers
+    glDrawBuffer gl_COLOR_ATTACHMENT0
+
+    status <- glCheckFramebufferStatus gl_FRAMEBUFFER 
+    when (status /= gl_FRAMEBUFFER_COMPLETE) $ fail "Incomplete framebuffer"
+    return (fb, renderedTexture)
+
 initGLStuff = do
-    glClearColor 0.02 0.02 0.05 0
-    progScene <- loadProgram "simple.vert" "simple.frag"
-    progLight <- loadProgram "simple.vert" "light.frag"
+    glClearColor 0.0 0.0 0.0 0
+    progScene <- loadProgram "scene.vert" "scene.frag"
+    progLight <- loadProgram "light.vert" "light.frag"
     vertexArrayId <- withNewPtr (glGenVertexArrays 1)
     glBindVertexArray vertexArrayId
 
@@ -63,18 +116,36 @@ initGLStuff = do
 
     lightPosUniform <- getUniform progLight "lightPos"
     lightColorUniform <- getUniform progLight "lightColor"
+    ambientUniform <- getUniform progScene "ambient"
+    colorUniform <- getUniform progScene "drawColor"
 
-    light1 <- makeLight (Vector3 0 0 1.0) (Vector2 0 0) example
+    light1 <- makeLight (Vector3 0 0 0.0) (Vector2 0 0) example
     light2 <- makeLight (Vector3 0.2 0.7 0.2) (Vector2 700 (-700)) example
     light3 <- makeLight (Vector3 0.2 0 0.2) (Vector2 (-950) 975) example
-    light4 <- makeLight (Vector3 0.5 0 0.0) (Vector2 950 975) example
-    let lights = [light1, light2, light3, light4]
+    light4 <- makeLight (Vector3 0.2 0 0.2) (Vector2 950 975) example
+    light5 <- makeLight (Vector3 0.2 0 0.2) (Vector2 (-950) (-975)) example
+    light6 <- makeLight (Vector3 0.2 0 0.2) (Vector2 950 (-975)) example
+    let lights = [light2,light3]
 
-    let walls = map fromIntegral $ concat $ map segmentToLine example
-
+    let walls = toVertexList $ concat $ map segmentToBox example
     let vertexCount1 = length walls
 
     wallBufferId  <- fillNewBuffer walls
+   
+    testBufferId <- fillNewBuffer [1000, 1000, 0, 1000, -1000, 0, -1000, -1000, 0, -1000, 1000, 0]
+
+    -- render Lights to frame buffer
+    (lightFB, ambientTexture) <- createFrameBuffer 800
+    glBindFramebuffer gl_FRAMEBUFFER lightFB
+    glViewport 0 0 800 800
+    glClearColor 0.01 0.01 0.03 0
+    glClear gl_COLOR_BUFFER_BIT
+    glUseProgram progLight
+    glEnableVertexAttribArray 0  -- 1st attribute: vertices
+    glBlendFunc gl_ONE gl_ONE
+    mapM_ (drawLight GLIds{..}) lights
+    glBindFramebuffer gl_FRAMEBUFFER 0
+    glViewport 0 0 800 800
 
     return GLIds{..}
 
@@ -94,19 +165,27 @@ drawLight GLIds{..} RayLight{..} = do
     glDrawArrays gl_TRIANGLES 0 (fromIntegral count)
     
 mainLoop window glids@GLIds{..} = fix $ \loop -> do
+    glClearColor 0.0 0.0 0.0 0
     glClear gl_COLOR_BUFFER_BIT
     glEnableVertexAttribArray 0  -- 1st attribute: vertices
 
-    glBlendFunc gl_ONE gl_ONE
-
-    glUseProgram progLight
-    mapM_ (drawLight glids) lights
-
     glUseProgram progScene
+    
+    glActiveTexture gl_TEXTURE1
+    glBindTexture gl_TEXTURE_2D ambientTexture
+    glUniform1i ambientUniform 1
+
+    glUniform3f colorUniform 0.2 0.2 0.2
+    glBlendFunc gl_ONE gl_ZERO
+    glBindBuffer gl_ARRAY_BUFFER testBufferId
+    glVertexAttribPointer 0 3 gl_FLOAT (fromBool False) 0 nullPtr 
+    glDrawArrays gl_QUADS 0 4
+
+    glUniform3f colorUniform 1.0 1.0 1.0
     glBlendFunc gl_ONE gl_ZERO
     glBindBuffer gl_ARRAY_BUFFER wallBufferId
     glVertexAttribPointer 0 3 gl_FLOAT (fromBool False) 0 nullPtr 
-    glDrawArrays gl_LINES 0 (fromIntegral vertexCount1)
+    glDrawArrays gl_QUADS 0 (fromIntegral vertexCount1)
 
     glDisableVertexAttribArray 0
     W.swapBuffers window
