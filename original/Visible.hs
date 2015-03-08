@@ -24,6 +24,7 @@ data GLIds = GLIds {
     vertexArrayId :: !GLuint,
     wallBufferId  :: !GLuint,
     testBufferId  :: !GLuint,
+    playerBufferId :: !GLuint,
     vertexCount1 :: Int,
     lights :: [RayLight],
     lightPosUniform :: !GLint,
@@ -32,8 +33,10 @@ data GLIds = GLIds {
     wallLightTexture :: !GLuint,
     diffuseUniform :: !GLint,
     colorUniform :: !GLint,
+    locationUniform :: !GLint,
     textureUniform :: !GLint,
     tex :: !GLuint}
+    deriving (Show)
 
 segmentToTriangle (Vector2 x0 y0) (Segment (Vector2 x1 y1) (Vector2 x2 y2)) = [x0, y0, 0, x1 + x0, y1 + y0, 0, x2 + x0, y2 + y0, 0]
 
@@ -127,8 +130,9 @@ initGLStuff = do
     diffuseUniform <- getUniform progScene "diffuse"
     textureUniform <- getUniform progScene "texture"
     colorUniform <- getUniform progScene "drawColor"
+    locationUniform <- getUniform progScene "loc"
 
-    light1 <- makeLight (Vector3 0.4 0.4 0.4) (Vector2 0 0) example
+    light1 <- makeLight (Vector3 0.4 0.0 0.4) (Vector2 0 0) example
     light2 <- makeLight (Vector3 0.7 0.0 0.0) (Vector2 700 (-700)) example
     light3 <- makeLight (Vector3 0.2 0.0 0.2) (Vector2 (-950) 975) example
     light4 <- makeLight (Vector3 0.0 0.2 0.2) (Vector2 950 975) example
@@ -142,6 +146,11 @@ initGLStuff = do
     wallBufferId  <- fillNewBuffer walls
    
     testBufferId <- fillNewBuffer [1000, 1000, 0, 1000, -1000, 0, -1000, -1000, 0, -1000, 1000, 0]
+
+    playerBufferId <- fillNewBuffer $ toVertexList $ concat [
+        [Vector2 (30 * sin (2 * pi * t/12)) (30 * cos (2 * pi * t/12)),
+         Vector2 (30 * sin (2 * pi * (t+1)/12)) (30 * cos (2 * pi * (t+1)/12)),
+         Vector2 0 0] | t <- [0..11]]
 
     -- Textures
     tex <- loadBMP "imgs/cobble.bmp"
@@ -168,9 +177,6 @@ initGLStuff = do
     glUniform1f lightHeight 100
     mapM_ (drawLight GLIds{..}) lights
 
-    glBindFramebuffer gl_FRAMEBUFFER 0
-    glViewport 0 0 800 800
-
     return GLIds{..}
 
 uniformV2 :: GLint -> Vector2 Integer -> IO ()
@@ -188,12 +194,16 @@ drawLight GLIds{..} RayLight{..} = do
     glVertexAttribPointer 0 3 gl_FLOAT (fromBool False) 0 nullPtr
     glDrawArrays gl_TRIANGLES 0 (fromIntegral count)
 
-draw GLIds{..} = do
+draw GLIds{..} (x, y) = do
+    glBindFramebuffer gl_FRAMEBUFFER 0
+    glViewport 0 0 800 800
+
     glClear gl_COLOR_BUFFER_BIT
     glEnableVertexAttribArray 0  -- 1st attribute: vertices
 
     glUseProgram progScene
-    
+    glBlendFunc gl_ONE gl_ZERO
+
     glActiveTexture gl_TEXTURE1
     glBindTexture gl_TEXTURE_2D diffuseTexture
     glUniform1i diffuseUniform 1
@@ -202,13 +212,15 @@ draw GLIds{..} = do
     glBindTexture gl_TEXTURE_2D tex
     glUniform1i textureUniform 2
 
+    glUniform2f locationUniform 0 0
+
     -- Draw the floor
     glUniform3f colorUniform 0 0 0
-    glBlendFunc gl_ONE gl_ZERO
     glBindBuffer gl_ARRAY_BUFFER testBufferId
     glVertexAttribPointer 0 3 gl_FLOAT (fromBool False) 0 nullPtr 
     glDrawArrays gl_QUADS 0 4
 
+    -- Disable floor texture
     glUniform1i textureUniform 0
 
     glActiveTexture gl_TEXTURE1
@@ -217,18 +229,37 @@ draw GLIds{..} = do
 
     -- Draw the walls
     glUniform3f colorUniform 1.0 1.0 1.0
-    glBlendFunc gl_ONE gl_ZERO
     glBindBuffer gl_ARRAY_BUFFER wallBufferId
     glVertexAttribPointer 0 3 gl_FLOAT (fromBool False) 0 nullPtr 
     glDrawArrays gl_QUADS 0 (fromIntegral vertexCount1)
 
+    -- Draw the player.
+    glUniform2f locationUniform x y 
+    glUniform3f colorUniform 1.0 0.1 0.1
+    glBindBuffer gl_ARRAY_BUFFER playerBufferId
+    glVertexAttribPointer 0 3 gl_FLOAT (fromBool False) 0 nullPtr 
+    glDrawArrays gl_TRIANGLES 0 36
+
     glDisableVertexAttribArray 0
 
-mainLoop window glids frames = do
-    draw glids
+pressed window key = do
+    ks <- W.getKey window key
+    return (ks == W.KeyState'Pressed)
+
+update (x, y) W.Key'Up = (x, y + 20)
+update (x, y) W.Key'Down = (x, y - 20)
+update (x, y) W.Key'Left = (x - 20, y)
+update (x, y) W.Key'Right = (x + 20, y)
+
+mainLoop window glids frames state = do
+    draw glids state
     W.swapBuffers window
 
     W.pollEvents
+
+    down <- filterM (pressed window) [W.Key'Up, W.Key'Down, W.Key'Left, W.Key'Right]
+    let state' = foldl update state down
+
     ks <- W.getKey window W.Key'Escape
     let continue = ks /= W.KeyState'Pressed
 
@@ -236,7 +267,7 @@ mainLoop window glids frames = do
     let delay = round $ 1000000 * (frames / 30 - t)
     if delay > 0 then threadDelay delay else return ()
 
-    when continue (mainLoop window glids (frames + 1))
+    when continue (mainLoop window glids (frames + 1) state')
 
 cleanUpGLStuff GLIds{..} = do
     with wallBufferId $ glDeleteBuffers 1
@@ -248,7 +279,8 @@ main = do
     W.makeContextCurrent (Just window)
     -- W.enableKeyRepeat
     ids <- initGLStuff
-    mainLoop window ids 0 
+    print ids
+    mainLoop window ids 0 (0, 0)
     cleanUpGLStuff ids
     W.terminate
 
