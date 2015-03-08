@@ -7,6 +7,7 @@ import Graphics.Rendering.OpenGL
 
 import Control.Monad
 import Control.Applicative
+import Control.Concurrent
 import Data.Function
 import Foreign
 import Foreign.C.String
@@ -222,11 +223,20 @@ draw GLIds{..} = do
     glDrawArrays gl_QUADS 0 (fromIntegral vertexCount1)
 
     glDisableVertexAttribArray 0
+
+mainLoop window glids frames = do
+    draw glids
     W.swapBuffers window
+
     W.pollEvents
     ks <- W.getKey window W.Key'Escape
     let continue = ks /= W.KeyState'Pressed
-    when continue loop
+
+    Just t <- W.getTime
+    let delay = round $ 1000000 * (frames / 30 - t)
+    if delay > 0 then threadDelay delay else return ()
+
+    when continue (mainLoop window glids (frames + 1))
 
 cleanUpGLStuff GLIds{..} = do
     with wallBufferId $ glDeleteBuffers 1
@@ -238,7 +248,7 @@ main = do
     W.makeContextCurrent (Just window)
     -- W.enableKeyRepeat
     ids <- initGLStuff
-    mainLoop window ids
+    mainLoop window ids 0 
     cleanUpGLStuff ids
     W.terminate
 
