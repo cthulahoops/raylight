@@ -30,7 +30,6 @@ data GLIds = GLIds {
     lightPosUniform :: !GLint,
     lightColorUniform :: !GLint,
     diffuseTexture :: !GLuint,
-    wallLightTexture :: !GLuint,
     diffuseUniform :: !GLint,
     colorUniform :: !GLint,
     locationUniform :: !GLint,
@@ -60,8 +59,11 @@ fillNewBuffer bufferData = do
             (ptr :: Ptr GLfloat) gl_STATIC_DRAW
     return id
 
+type GLtexture = GLuint
+type GLuniform = GLint
+
 data RayLight = RayLight {
-        lightPos   :: Vector2 Integer,
+        lightPos   :: Vector3 Integer,
         lightColor :: Vector3 GLfloat,
         lightVertices :: !(Int, GLuint)
     } 
@@ -73,7 +75,8 @@ makeLight color position segments = do
     let lit = map fromIntegral $ concat $ map (segmentToTriangle position) $ litSegments segments'
     let count = length lit
     buffer <- fillNewBuffer lit
-    return $ RayLight {lightPos = position, lightColor = color, lightVertices = (count, buffer)}
+    return $ RayLight {lightPos = withHeight position, lightColor = color, lightVertices = (count, buffer)}
+    where withHeight (Vector2 x y) = Vector3 x y 50
 
 createFrameBuffer :: GLint -> IO (GLuint, GLuint)
 createFrameBuffer size = do
@@ -155,9 +158,18 @@ initGLStuff = do
     -- Textures
     tex <- loadBMP "imgs/cobble.bmp"
 
-    -- render Lights to frame buffer
-    (lightFB, diffuseTexture) <- createFrameBuffer 800
-    (wallLightFB, wallLightTexture) <- createFrameBuffer 800
+    diffuseTexture <- renderLight progLight light1
+
+    return GLIds{..}
+
+
+renderLight :: GLuint -> RayLight -> IO GLtexture
+renderLight progLight light = do
+    (lightFB, lightTexture) <- createFrameBuffer 800
+
+    lightHeight       <- getUniform progLight "lightHeight"
+    lightPosUniform   <- getUniform progLight "lightPos"
+    lightColorUniform <- getUniform progLight "lightColor"
 
     glBindFramebuffer gl_FRAMEBUFFER lightFB
     glViewport 0 0 800 800
@@ -166,28 +178,22 @@ initGLStuff = do
     glEnableVertexAttribArray 0  -- 1st attribute: vertices
     glBlendFunc gl_ONE gl_ONE
     glUniform1f lightHeight 0.1
-    mapM_ (drawLight GLIds{..}) lights
-
-    glBindFramebuffer gl_FRAMEBUFFER wallLightFB
-    glViewport 0 0 800 800
-    glClear gl_COLOR_BUFFER_BIT
-    glUseProgram progLight
-    glEnableVertexAttribArray 0  -- 1st attribute: vertices
-    glBlendFunc gl_ONE gl_ONE
-    glUniform1f lightHeight 100
-    mapM_ (drawLight GLIds{..}) lights
-
-    return GLIds{..}
+    drawLight lightPosUniform lightColorUniform light
+    return lightTexture
 
 uniformV2 :: GLint -> Vector2 Integer -> IO ()
 uniformV2 uniform (Vector2 x y) = glUniform2f uniform (fromIntegral x) (fromIntegral y)
 
+uniformV3i :: GLint -> Vector3 Integer -> IO ()
+uniformV3i uniform (Vector3 x y z) = glUniform3f uniform (fromIntegral x) (fromIntegral y) (fromIntegral z)
+
 uniformV3 :: GLint -> Vector3 GLfloat -> IO ()
 uniformV3 uniform (Vector3 x y z) = glUniform3f uniform x y z
 
-drawLight :: GLIds -> RayLight -> IO ()
-drawLight GLIds{..} RayLight{..} = do
-    uniformV2 lightPosUniform lightPos
+
+drawLight :: GLuniform -> GLuniform -> RayLight -> IO ()
+drawLight lightPosUniform lightColorUniform RayLight{..} = do
+    uniformV3i lightPosUniform lightPos
     uniformV3 lightColorUniform lightColor
     let (count, bufferId) = lightVertices
     glBindBuffer gl_ARRAY_BUFFER bufferId
@@ -213,6 +219,11 @@ draw GLIds{..} (x, y) = do
     glUniform1i textureUniform 2
 
     glUniform2f locationUniform 0 0
+    u <- getUniform progScene "lightPos"
+    uniformV3i u (lightPos $ head lights)
+    
+    u2 <- getUniform progScene "normal"
+    glUniform3f u2 0 0 (-1)
 
     -- Draw the floor
     glUniform3f colorUniform 0 0 0
@@ -223,9 +234,7 @@ draw GLIds{..} (x, y) = do
     -- Disable floor texture
     glUniform1i textureUniform 0
 
-    glActiveTexture gl_TEXTURE1
-    glBindTexture gl_TEXTURE_2D wallLightTexture
-    glUniform1i diffuseUniform 1
+    glUniform3f u2 1 1 0
 
     -- Draw the walls
     glUniform3f colorUniform 1.0 1.0 1.0
