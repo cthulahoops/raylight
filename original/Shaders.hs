@@ -9,9 +9,9 @@ import Control.Monad
 withNewPtr f = alloca (\p -> f p >> peek p)
 
 loadProgram vertFP fragFP = do
-  shaderIds <- mapM (uncurry loadShader)
-    [(gl_VERTEX_SHADER, vertFP)
-    ,(gl_FRAGMENT_SHADER, fragFP)]
+  shaderIds <- sequence [
+    loadShader gl_VERTEX_SHADER vertFP,
+    loadShader gl_FRAGMENT_SHADER fragFP]
   progId <- glCreateProgram
   mapM_ (glAttachShader progId) shaderIds
   glLinkProgram progId
@@ -20,6 +20,7 @@ loadProgram vertFP fragFP = do
   return progId
 
 loadShader shaderTypeFlag filePath = do
+  putStrLn $ "Loading " ++ filePath
   code <- readFile filePath
   id <- glCreateShader shaderTypeFlag
   withCString code $ \codePtr ->
@@ -36,6 +37,7 @@ checkStatus statusFlag glGetFn glInfoLogFn id = do
   when (logLength > 0) $
     allocaArray0 (fromIntegral logLength) $ \msgPtr -> do
        glInfoLogFn id logLength nullPtr msgPtr
+       peekCString msgPtr >>= \msg -> putStrLn ("shader: " ++ msg)
   return status
 
 getAttribute :: GLuint -> String -> IO GLuint
