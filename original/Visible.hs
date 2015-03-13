@@ -256,6 +256,9 @@ draw GLIds{..} (x, y) = do
 
     glUniform2f locationUniform 0 0
 
+    camera <- getUniform progScene "cameraPosition"
+    glUniform2f camera (-x) (-y)
+
     u <- getUniform progScene "lightPos"
 
     let lp = concat $ [[fromIntegral x, fromIntegral y, fromIntegral z] | Vector3 x y z <- map lightPos lights]
