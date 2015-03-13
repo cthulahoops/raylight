@@ -23,8 +23,7 @@ data GLIds = GLIds {
     progLight :: !GLuint,
     vertexArrayId :: !GLuint,
     wallBufferId  :: !GLuint,
-    testBufferId  :: !GLuint,
-    floorBufferId :: !GLuint,
+    floorObj :: !SceneObject,
     playerBufferId :: !GLuint,
     vertexCount1 :: Int,
     lights :: [RayLight],
@@ -80,6 +79,21 @@ makeLight color position segments = do
     buffer <- fillNewBuffer lit
     return $ RayLight {lightPos = withHeight position, lightColor = color, lightVertices = (count, buffer)}
     where withHeight (Vector2 x y) = Vector3 x y 50
+
+data SceneObject = SceneObject {
+        soPosition :: !GLuint,
+        soNormals  :: !GLuint
+    } deriving (Show)
+
+makeSceneObj verts norms = do
+    positionBuffer <- fillNewBuffer verts
+    normalBuffer   <- fillNewBuffer norms
+    return $ SceneObject { soPosition = positionBuffer, soNormals = normalBuffer }
+
+drawObject obj (posAttrib, normalAttrib) = do
+    bindBufferToAttrib (soPosition obj) posAttrib
+    bindBufferToAttrib (soNormals obj) normalAttrib
+    glDrawArrays gl_QUADS 0 4
 
 createFrameBuffer :: GLint -> IO (GLuint, GLuint)
 createFrameBuffer size = do
@@ -156,8 +170,9 @@ initGLStuff = do
 
     wallBufferId  <- fillNewBuffer walls
    
-    testBufferId <- fillNewBuffer [1000, 1000, 0, 1000, -1000, 0, -1000, -1000, 0, -1000, 1000, 0]
-    floorBufferId <- fillNewBuffer [0, 0, (-1), 0, 0, (-1), 0, 0, (-1), 0, 0, (-1)]
+    floorObj <- makeSceneObj
+                    [1000, 1000, 0, 1000, -1000, 0, -1000, -1000, 0, -1000, 1000, 0]
+                    [0, 0, (-1), 0, 0, (-1), 0, 0, (-1), 0, 0, (-1)]
     
 
     playerBufferId <- fillNewBuffer $ toVertexList $ concat [
@@ -239,9 +254,7 @@ draw GLIds{..} (x, y) = do
     
     -- Draw the floor
     glUniform3f colorUniform 0 0 0
-    bindBufferToAttrib testBufferId  posAttrib
-    bindBufferToAttrib floorBufferId normalAttrib
-    glDrawArrays gl_QUADS 0 4
+    drawObject floorObj (posAttrib, normalAttrib)
 
     -- Disable floor texture
     glUniform1i textureUniform 0
