@@ -28,11 +28,9 @@ data GLIds = GLIds {
     lights :: [RayLight],
     lightPosUniform :: !GLint,
     lightColorUniform :: !GLint,
-    lightTexture1 :: !GLuint,
-    lightTexture2 :: !GLuint,
-    diffuse1 :: !GLint,
-    diffuse2 :: !GLint,
-    colorUniform :: !GLint,
+    lightTextures :: ![GLuint],
+    shadowUniform :: !GLint,
+    colorUniform  :: !GLint,
     locationUniform :: !GLint,
     textureUniform :: !GLint,
     posAttrib :: !GLuint,
@@ -159,8 +157,7 @@ initGLStuff = do
     lightColorUniform <- getUniform progLight "lightColor"
     lightHeight       <- getUniform progLight "lightHeight"
 
-    diffuse1 <- getUniform progScene "diffuse1"
-    diffuse2 <- getUniform progScene "diffuse2"
+    shadowUniform   <- getUniform progScene "shadowTex"
     textureUniform  <- getUniform progScene "texture"
     colorUniform    <- getUniform progScene "drawColor"
     locationUniform <- getUniform progScene "loc"
@@ -193,8 +190,7 @@ initGLStuff = do
     -- Textures
     tex <- loadBMP "imgs/cobble.bmp"
 
-    lightTexture1 <- renderLight progLight light1
-    lightTexture2 <- renderLight progLight light2
+    lightTextures <- mapM (renderLight progLight) lights
 
     return GLIds{..}
 
@@ -254,21 +250,17 @@ draw GLIds{..} (x, y) = do
     glActiveTexture gl_TEXTURE1
     glBindTexture gl_TEXTURE_2D tex
     glUniform1i textureUniform 1
+    
+    zipWithM_ (\t l -> glActiveTexture t >> glBindTexture gl_TEXTURE_2D l) [gl_TEXTURE2, gl_TEXTURE3, gl_TEXTURE4, gl_TEXTURE5, gl_TEXTURE6, gl_TEXTURE7] lightTextures
 
-    glActiveTexture gl_TEXTURE2
-    glBindTexture gl_TEXTURE_2D lightTexture1
-    glUniform1i diffuse1 2
-
-    glActiveTexture gl_TEXTURE3
-    glBindTexture gl_TEXTURE_2D lightTexture2
-    glUniform1i diffuse2 3
+    withArray [2,3,4,5,6,7] (glUniform1iv shadowUniform 6)
 
     glUniform2f locationUniform 0 0
-    u1 <- getUniform progScene "lightPos1"
-    uniformV3i u1 (lightPos $ head $ lights)
-    
-    u2 <- getUniform progScene "lightPos2"
-    uniformV3i u2 (lightPos $ head $ tail lights)
+
+    u <- getUniform progScene "lightPos"
+
+    let lp = concat $ [[fromIntegral x, fromIntegral y, fromIntegral z] | Vector3 x y z <- map lightPos lights]
+    withArray lp (\p -> glUniform3fv u 6 p)
  
     -- Draw the floor
     glUniform3f colorUniform 0 0 0
