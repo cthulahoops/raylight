@@ -6,16 +6,16 @@ in vec3 vertexNormal;
 
 uniform vec2 loc;
 
-out vec2 fragPos;
 out vec2 UV;
 out vec3 fragmentNormal;
+out vec2 fragmentPosition;
 
 void main(){
 
     gl_Position.xyz = (vec3(loc, 0) + vertexPosition_modelspace) * 0.0008;
     gl_Position.w = 1.0;
     
-    fragPos = gl_Position.xy;
+    fragmentPosition = gl_Position.xy;
     UV = (gl_Position.xy + 1) / 2;
 
     fragmentNormal = vertexNormal;

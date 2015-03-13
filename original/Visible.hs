@@ -22,15 +22,16 @@ data GLIds = GLIds {
     progScene :: !GLuint,
     progLight :: !GLuint,
     vertexArrayId :: !GLuint,
-    wallBufferId  :: !GLuint,
     floorObj :: !SceneObject,
-    playerBufferId :: !GLuint,
-    vertexCount1 :: Int,
+    wallObj  :: !SceneObject,
+    playerObj :: !SceneObject,
     lights :: [RayLight],
     lightPosUniform :: !GLint,
     lightColorUniform :: !GLint,
-    diffuseTexture :: !GLuint,
-    diffuseUniform :: !GLint,
+    lightTexture1 :: !GLuint,
+    lightTexture2 :: !GLuint,
+    diffuse1 :: !GLint,
+    diffuse2 :: !GLint,
     colorUniform :: !GLint,
     locationUniform :: !GLint,
     textureUniform :: !GLint,
@@ -43,8 +44,10 @@ segmentToTriangle (Vector2 x0 y0) (Segment (Vector2 x1 y1) (Vector2 x2 y2)) = [x
 
 segmentToLine (Segment (Vector2 x1 y1) (Vector2 x2 y2)) = [x1, y1, 0, x2, y2, 0]
 
-segmentToBox segment@(Segment p1 p2) = [fp1 ^+ norm1, fp2 ^+ norm1, fp2 ^+ norm2, fp1 ^+ norm2]
-    where fp1   = fmap fromIntegral p1
+segmentToBox segment@(Segment p1 p2) = (verts, norms)
+    where verts = [fp1 ^+ norm1, fp2 ^+ norm1, fp2 ^+ norm2, fp1 ^+ norm2]
+          norms = [norm1, norm1, norm2, norm2]
+          fp1   = fmap fromIntegral p1
           fp2   = fmap fromIntegral p2
           norm1 = 6 ^* norm (Vector2 dy (-dx))
           norm2 = 6 ^* norm (Vector2 (-dy) dx)
@@ -52,6 +55,9 @@ segmentToBox segment@(Segment p1 p2) = [fp1 ^+ norm1, fp2 ^+ norm1, fp2 ^+ norm2
 
 toVertexList :: [Vector2 GLfloat] -> [GLfloat]
 toVertexList vs = concat $ map (\(Vector2 x y) -> [x, y, 0]) vs
+
+toVertexList3 :: [Vector3 GLfloat] -> [GLfloat]
+toVertexList3 vs = concat $ map (\(Vector3 x y z) -> [x, y, z]) vs
 
 fillNewBuffer bufferData = do
     id <- withNewPtr (glGenBuffers 1)
@@ -82,18 +88,24 @@ makeLight color position segments = do
 
 data SceneObject = SceneObject {
         soPosition :: !GLuint,
-        soNormals  :: !GLuint
+        soNormals  :: !GLuint,
+        soCount    :: !Int,
+        soPoly     :: !GLuint
     } deriving (Show)
 
-makeSceneObj verts norms = do
+makeSceneObj poly verts norms = do
     positionBuffer <- fillNewBuffer verts
     normalBuffer   <- fillNewBuffer norms
-    return $ SceneObject { soPosition = positionBuffer, soNormals = normalBuffer }
+    return $ SceneObject {
+        soPosition = positionBuffer,
+        soNormals = normalBuffer,
+        soPoly  = poly, 
+        soCount = length verts}
 
 drawObject obj (posAttrib, normalAttrib) = do
     bindBufferToAttrib (soPosition obj) posAttrib
     bindBufferToAttrib (soNormals obj) normalAttrib
-    glDrawArrays gl_QUADS 0 4
+    glDrawArrays (soPoly obj) 0 (fromIntegral $ soCount obj)
 
 createFrameBuffer :: GLint -> IO (GLuint, GLuint)
 createFrameBuffer size = do
@@ -132,8 +144,6 @@ createFrameBuffer size = do
 
     status <- glCheckFramebufferStatus gl_FRAMEBUFFER 
     when (status /= gl_FRAMEBUFFER_COMPLETE) $ fail "Incomplete framebuffer"
-    msgs <- debugLoggedMessages
-    print msgs
     return (fb, renderedTexture)
 
 initGLStuff = do
@@ -149,7 +159,8 @@ initGLStuff = do
     lightColorUniform <- getUniform progLight "lightColor"
     lightHeight       <- getUniform progLight "lightHeight"
 
-    diffuseUniform  <- getUniform progScene "diffuse"
+    diffuse1 <- getUniform progScene "diffuse1"
+    diffuse2 <- getUniform progScene "diffuse2"
     textureUniform  <- getUniform progScene "texture"
     colorUniform    <- getUniform progScene "drawColor"
     locationUniform <- getUniform progScene "loc"
@@ -157,33 +168,33 @@ initGLStuff = do
     posAttrib <- getAttribute progScene "vertexPosition_modelspace"
     normalAttrib <- getAttribute progScene "vertexNormal"
 
-    light1 <- makeLight (Vector3 0.4 0.0 0.4) (Vector2 0 0) example
-    light2 <- makeLight (Vector3 0.7 0.0 0.0) (Vector2 700 (-700)) example
+    light1 <- makeLight (Vector3 0.0 0.0 0.8) (Vector2 0 0) example
+    light2 <- makeLight (Vector3 0.8 0.0 0.0) (Vector2 700 (-700)) example
     light3 <- makeLight (Vector3 0.2 0.0 0.2) (Vector2 (-950) 975) example
     light4 <- makeLight (Vector3 0.0 0.2 0.2) (Vector2 950 975) example
     light5 <- makeLight (Vector3 0.2 0.2 0.0) (Vector2 (-950) (-975)) example
     light6 <- makeLight (Vector3 0.0 0.0 0.2) (Vector2 950 (-975)) example
     let lights = [light1,light2,light3,light4,light5,light6]
 
-    let walls = toVertexList $ concat $ map segmentToBox example
-    let vertexCount1 = length walls
+    let (verts, norms) = unzip $ map segmentToBox example
 
-    wallBufferId  <- fillNewBuffer walls
-   
-    floorObj <- makeSceneObj
+    wallObj <- makeSceneObj gl_QUADS (toVertexList $ concat $ verts) (toVertexList $ concat $ norms)
+    floorObj <- makeSceneObj gl_QUADS
                     [1000, 1000, 0, 1000, -1000, 0, -1000, -1000, 0, -1000, 1000, 0]
-                    [0, 0, (-1), 0, 0, (-1), 0, 0, (-1), 0, 0, (-1)]
+                    [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]
     
 
-    playerBufferId <- fillNewBuffer $ toVertexList $ concat [
-        [Vector2 (30 * sin (2 * pi * t/12)) (30 * cos (2 * pi * t/12)),
-         Vector2 (30 * sin (2 * pi * (t+1)/12)) (30 * cos (2 * pi * (t+1)/12)),
-         Vector2 0 0] | t <- [0..11]]
+    let vertsp = toVertexList3 $ concat [[Vector3 (30 * sin (2 * pi * t/12)) (30 * cos (2 * pi * t/12)) 0,
+         Vector3 (30 * sin (2 * pi * (t+1)/12)) (30 * cos (2 * pi * (t+1)/12)) 0,
+         Vector3 0 0 1] | t <- [0..11]]
+
+    playerObj <- makeSceneObj gl_TRIANGLES vertsp vertsp
 
     -- Textures
     tex <- loadBMP "imgs/cobble.bmp"
 
-    diffuseTexture <- renderLight progLight light1
+    lightTexture1 <- renderLight progLight light1
+    lightTexture2 <- renderLight progLight light2
 
     return GLIds{..}
 
@@ -241,17 +252,24 @@ draw GLIds{..} (x, y) = do
     glBlendFunc gl_ONE gl_ZERO
 
     glActiveTexture gl_TEXTURE1
-    glBindTexture gl_TEXTURE_2D diffuseTexture
-    glUniform1i diffuseUniform 1
+    glBindTexture gl_TEXTURE_2D tex
+    glUniform1i textureUniform 1
 
     glActiveTexture gl_TEXTURE2
-    glBindTexture gl_TEXTURE_2D tex
-    glUniform1i textureUniform 2
+    glBindTexture gl_TEXTURE_2D lightTexture1
+    glUniform1i diffuse1 2
+
+    glActiveTexture gl_TEXTURE3
+    glBindTexture gl_TEXTURE_2D lightTexture2
+    glUniform1i diffuse2 3
 
     glUniform2f locationUniform 0 0
-    u <- getUniform progScene "lightPos"
-    uniformV3i u (lightPos $ head lights)
+    u1 <- getUniform progScene "lightPos1"
+    uniformV3i u1 (lightPos $ head $ lights)
     
+    u2 <- getUniform progScene "lightPos2"
+    uniformV3i u2 (lightPos $ head $ tail lights)
+ 
     -- Draw the floor
     glUniform3f colorUniform 0 0 0
     drawObject floorObj (posAttrib, normalAttrib)
@@ -261,17 +279,12 @@ draw GLIds{..} (x, y) = do
 
     -- Draw the walls
     glUniform3f colorUniform 1.0 1.0 1.0
-    glBindBuffer gl_ARRAY_BUFFER wallBufferId
-    glVertexAttribPointer 0 3 gl_FLOAT (fromBool False) 0 nullPtr 
-    glDrawArrays gl_QUADS 0 (fromIntegral vertexCount1)
+    drawObject wallObj (posAttrib, normalAttrib)
 
     -- Draw the player.
     glUniform2f locationUniform x y 
-    glUniform3f colorUniform 1.0 0.1 0.1
-    glBindBuffer gl_ARRAY_BUFFER playerBufferId
-    glVertexAttribPointer 0 3 gl_FLOAT (fromBool False) 0 nullPtr 
-    glDrawArrays gl_TRIANGLES 0 36
-
+    glUniform3f colorUniform 1.0 1.0 1.0
+    drawObject playerObj (posAttrib, normalAttrib)
     glDisableVertexAttribArray 0
 
 pressed window key = do
@@ -302,7 +315,6 @@ mainLoop window glids frames state = do
     when continue (mainLoop window glids (frames + 1) state')
 
 cleanUpGLStuff GLIds{..} = do
-    with wallBufferId $ glDeleteBuffers 1
     with vertexArrayId $ glDeleteVertexArrays 1
 
 main = do
