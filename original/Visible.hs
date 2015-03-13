@@ -24,6 +24,7 @@ data GLIds = GLIds {
     vertexArrayId :: !GLuint,
     wallBufferId  :: !GLuint,
     testBufferId  :: !GLuint,
+    floorBufferId :: !GLuint,
     playerBufferId :: !GLuint,
     vertexCount1 :: Int,
     lights :: [RayLight],
@@ -34,6 +35,8 @@ data GLIds = GLIds {
     colorUniform :: !GLint,
     locationUniform :: !GLint,
     textureUniform :: !GLint,
+    posAttrib :: !GLuint,
+    normalAttrib :: !GLuint,
     tex :: !GLuint}
     deriving (Show)
 
@@ -115,6 +118,8 @@ createFrameBuffer size = do
 
     status <- glCheckFramebufferStatus gl_FRAMEBUFFER 
     when (status /= gl_FRAMEBUFFER_COMPLETE) $ fail "Incomplete framebuffer"
+    msgs <- debugLoggedMessages
+    print msgs
     return (fb, renderedTexture)
 
 initGLStuff = do
@@ -130,10 +135,13 @@ initGLStuff = do
     lightColorUniform <- getUniform progLight "lightColor"
     lightHeight       <- getUniform progLight "lightHeight"
 
-    diffuseUniform <- getUniform progScene "diffuse"
-    textureUniform <- getUniform progScene "texture"
-    colorUniform <- getUniform progScene "drawColor"
+    diffuseUniform  <- getUniform progScene "diffuse"
+    textureUniform  <- getUniform progScene "texture"
+    colorUniform    <- getUniform progScene "drawColor"
     locationUniform <- getUniform progScene "loc"
+
+    posAttrib <- getAttribute progScene "vertexPosition_modelspace"
+    normalAttrib <- getAttribute progScene "vertexNormal"
 
     light1 <- makeLight (Vector3 0.4 0.0 0.4) (Vector2 0 0) example
     light2 <- makeLight (Vector3 0.7 0.0 0.0) (Vector2 700 (-700)) example
@@ -149,6 +157,8 @@ initGLStuff = do
     wallBufferId  <- fillNewBuffer walls
    
     testBufferId <- fillNewBuffer [1000, 1000, 0, 1000, -1000, 0, -1000, -1000, 0, -1000, 1000, 0]
+    floorBufferId <- fillNewBuffer [0, 0, (-1), 0, 0, (-1), 0, 0, (-1), 0, 0, (-1)]
+    
 
     playerBufferId <- fillNewBuffer $ toVertexList $ concat [
         [Vector2 (30 * sin (2 * pi * t/12)) (30 * cos (2 * pi * t/12)),
@@ -200,6 +210,11 @@ drawLight lightPosUniform lightColorUniform RayLight{..} = do
     glVertexAttribPointer 0 3 gl_FLOAT (fromBool False) 0 nullPtr
     glDrawArrays gl_TRIANGLES 0 (fromIntegral count)
 
+bindBufferToAttrib bufId attribLoc = do
+    glEnableVertexAttribArray attribLoc
+    glBindBuffer gl_ARRAY_BUFFER bufId
+    glVertexAttribPointer attribLoc 3 gl_FLOAT (fromBool False) 0 nullPtr
+
 draw GLIds{..} (x, y) = do
     glBindFramebuffer gl_FRAMEBUFFER 0
     glViewport 0 0 800 800
@@ -222,19 +237,14 @@ draw GLIds{..} (x, y) = do
     u <- getUniform progScene "lightPos"
     uniformV3i u (lightPos $ head lights)
     
-    u2 <- getUniform progScene "normal"
-    glUniform3f u2 0 0 (-1)
-
     -- Draw the floor
     glUniform3f colorUniform 0 0 0
-    glBindBuffer gl_ARRAY_BUFFER testBufferId
-    glVertexAttribPointer 0 3 gl_FLOAT (fromBool False) 0 nullPtr 
+    bindBufferToAttrib testBufferId  posAttrib
+    bindBufferToAttrib floorBufferId normalAttrib
     glDrawArrays gl_QUADS 0 4
 
     -- Disable floor texture
     glUniform1i textureUniform 0
-
-    glUniform3f u2 1 1 0
 
     -- Draw the walls
     glUniform3f colorUniform 1.0 1.0 1.0

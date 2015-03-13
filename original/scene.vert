@@ -2,11 +2,13 @@
 
 // Input vertex data, different for all executions of this shader.
 in vec3 vertexPosition_modelspace;
+in vec3 vertexNormal;
 
 uniform vec2 loc;
 
 out vec2 fragPos;
 out vec2 UV;
+out vec3 fragmentNormal;
 
 void main(){
 
@@ -15,4 +17,6 @@ void main(){
     
     fragPos = gl_Position.xy;
     UV = (gl_Position.xy + 1) / 2;
+
+    fragmentNormal = vertexNormal;
 }
