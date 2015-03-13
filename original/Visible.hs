@@ -82,7 +82,7 @@ makeLight color position segments = do
     let count = length lit
     buffer <- fillNewBuffer lit
     return $ RayLight {lightPos = withHeight position, lightColor = color, lightVertices = (count, buffer)}
-    where withHeight (Vector2 x y) = Vector3 x y 50
+    where withHeight (Vector2 x y) = Vector3 x y 100
 
 data SceneObject = SceneObject {
         soPosition :: !GLuint,
@@ -155,7 +155,6 @@ initGLStuff = do
 
     lightPosUniform   <- getUniform progLight "lightPos"
     lightColorUniform <- getUniform progLight "lightColor"
-    lightHeight       <- getUniform progLight "lightHeight"
 
     shadowUniform   <- getUniform progScene "shadowTex"
     textureUniform  <- getUniform progScene "texture"
@@ -165,12 +164,12 @@ initGLStuff = do
     posAttrib <- getAttribute progScene "vertexPosition_modelspace"
     normalAttrib <- getAttribute progScene "vertexNormal"
 
-    light1 <- makeLight (Vector3 0.0 0.0 0.8) (Vector2 0 0) example
+    light1 <- makeLight (Vector3 0.8 0.8 0.8) (Vector2 0 0) example
     light2 <- makeLight (Vector3 0.8 0.0 0.0) (Vector2 700 (-700)) example
-    light3 <- makeLight (Vector3 0.2 0.0 0.2) (Vector2 (-950) 975) example
-    light4 <- makeLight (Vector3 0.0 0.2 0.2) (Vector2 950 975) example
-    light5 <- makeLight (Vector3 0.2 0.2 0.0) (Vector2 (-950) (-975)) example
-    light6 <- makeLight (Vector3 0.0 0.0 0.2) (Vector2 950 (-975)) example
+    light3 <- makeLight (Vector3 0.4 0.0 0.4) (Vector2 (-950) 975) example
+    light4 <- makeLight (Vector3 0.0 0.4 0.4) (Vector2 950 975) example
+    light5 <- makeLight (Vector3 0.4 0.4 0.0) (Vector2 (-950) (-975)) example
+    light6 <- makeLight (Vector3 0.0 0.0 0.4) (Vector2 950 (-975)) example
     let lights = [light1,light2,light3,light4,light5,light6]
 
     let (verts, norms) = unzip $ map segmentToBox example
@@ -199,7 +198,6 @@ renderLight :: GLuint -> RayLight -> IO GLtexture
 renderLight progLight light = do
     (lightFB, lightTexture) <- createFrameBuffer 800
 
-    lightHeight       <- getUniform progLight "lightHeight"
     lightPosUniform   <- getUniform progLight "lightPos"
     lightColorUniform <- getUniform progLight "lightColor"
 
@@ -209,7 +207,6 @@ renderLight progLight light = do
     glUseProgram progLight
     glEnableVertexAttribArray 0  -- 1st attribute: vertices
     glBlendFunc gl_ONE gl_ONE
-    glUniform1f lightHeight 0.1
     drawLight lightPosUniform lightColorUniform light
     return lightTexture
 
@@ -251,9 +248,11 @@ draw GLIds{..} (x, y) = do
     glBindTexture gl_TEXTURE_2D tex
     glUniform1i textureUniform 1
     
-    zipWithM_ (\t l -> glActiveTexture t >> glBindTexture gl_TEXTURE_2D l) [gl_TEXTURE2, gl_TEXTURE3, gl_TEXTURE4, gl_TEXTURE5, gl_TEXTURE6, gl_TEXTURE7] lightTextures
+    zipWithM_ (\t l -> do
+        glActiveTexture t
+        glBindTexture gl_TEXTURE_2D l) [gl_TEXTURE2..gl_TEXTURE7] lightTextures
 
-    withArray [2,3,4,5,6,7] (glUniform1iv shadowUniform 6)
+    withArray [2..7] (glUniform1iv shadowUniform 6)
 
     glUniform2f locationUniform 0 0
 

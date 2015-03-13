@@ -21,7 +21,7 @@ void main()
     for (int i = 0; i < n_lights; i++) {
         vec3 light = texture2D(shadowTex[i], UV).rgb;
         vec3 d = vec3(fragmentPosition,0) - (lightPos[i] * 0.0008);
-        float a = 1 / (1 + 3 * length(d));
+        float a = 1 / (1 + 5 * length(d));
         float s = clamp(dot(normalize(d), normalize(-1 * fragmentNormal)), 0, 1); 
         diffuse += a * s * light;
     }
