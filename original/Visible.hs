@@ -184,9 +184,9 @@ initGLStuff = do
                     [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]
     
 
-    let vertsp = toVertexList3 $ concat [[Vector3 (30 * sin (2 * pi * t/12)) (30 * cos (2 * pi * t/12)) 0,
-         Vector3 (30 * sin (2 * pi * (t+1)/12)) (30 * cos (2 * pi * (t+1)/12)) 0,
-         Vector3 0 0 1] | t <- [0..11]]
+    let vertsp = toVertexList3 $ concat [[Vector3 (30 * sin (2 * pi * t/12)) (30 * cos (2 * pi * t/12)) 30,
+         Vector3 (30 * sin (2 * pi * (t+1)/12)) (30 * cos (2 * pi * (t+1)/12)) 30,
+         Vector3 0 0 30] | t <- [0..11]]
 
     playerObj <- makeSceneObj gl_TRIANGLES vertsp vertsp
 
