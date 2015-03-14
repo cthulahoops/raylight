@@ -26,6 +26,7 @@ data GLIds = GLIds {
     floorObj :: !SceneObject,
     wallObj  :: !SceneObject,
     playerObj :: !SceneObject,
+    lightObj :: !SceneObject,
     lights :: [RayLight],
     playerLight :: DrawableTexture,
     lightTextures :: ![DrawableTexture],
@@ -187,6 +188,7 @@ initGLStuff = do
          Vector3 0 0 30] | t <- [0..11]]
 
     playerObj <- makeSceneObj gl_TRIANGLES vertsp vertsp
+    lightObj <- makeSceneObj gl_TRIANGLES (map (* 0.3) vertsp) (map (* 0.3) vertsp)
 
     -- Textures
     floorTexture <- loadBMP "152.bmp"
@@ -301,7 +303,7 @@ draw GLIds{..} Game{..} = do
     forM_ lights $ \light -> do
         uniformV3 em $ lightColor light
         uniformV2 locationUniform $ lightPos light
-        drawObject playerObj (posAttrib, normalAttrib)
+        drawObject lightObj (posAttrib, normalAttrib)
     glDisableVertexAttribArray 0
 
 pressed window key = do
