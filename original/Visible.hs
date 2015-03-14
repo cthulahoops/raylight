@@ -9,6 +9,7 @@ import Control.Monad
 import Control.Applicative
 import Control.Concurrent
 import Data.Function
+import Data.IORef
 import Foreign
 import Foreign.C.String
 
@@ -229,10 +230,19 @@ bindBufferToAttrib bufId attribLoc = do
     glBindBuffer gl_ARRAY_BUFFER bufId
     glVertexAttribPointer attribLoc 3 gl_FLOAT (fromBool False) 0 nullPtr
 
-draw :: GLIds -> (Integer, Integer) -> IO ()
-draw GLIds{..} (x, y) = do
+data Game = Game {
+    gamePosition :: (Integer, Integer),
+    gameLight :: Bool
+    } deriving (Show)
+
+draw :: GLIds -> Game -> IO ()
+draw GLIds{..} Game{..} = do
+    let (x,y) = gamePosition
     -- Render light before we do any drawing!
-    let pl = RayLight (Vector3 0.8 0.8 0.4) (Vector2 x y)
+    --
+    let playerColor = if gameLight then Vector3 0.8 0.8 0.4 else Vector3 0.0 0.0 0.0
+
+    let pl = RayLight playerColor (Vector2 x y)
     renderLight progLight pl playerLight
 
     glBindFramebuffer gl_FRAMEBUFFER 0
@@ -287,7 +297,7 @@ draw GLIds{..} (x, y) = do
     drawObject wallObj (posAttrib, normalAttrib)
 
     -- Draw the player.
-    glUniform3f em 0.8 0.8 0.4
+    uniformV3 em playerColor
     glUniform2f locationUniform (fromIntegral x) (fromIntegral y) 
     glUniform3f colorUniform 1.0 1.0 1.0
     drawObject playerObj (posAttrib, normalAttrib)
@@ -297,19 +307,27 @@ pressed window key = do
     ks <- W.getKey window key
     return (ks == W.KeyState'Pressed)
 
-update (x, y) W.Key'Up = (x, y + 20)
-update (x, y) W.Key'Down = (x, y - 20)
-update (x, y) W.Key'Left = (x - 20, y)
-update (x, y) W.Key'Right = (x + 20, y)
+update game W.Key'Up    = withGamePosition game $ \(x,y) -> (x, y + 20)
+update game W.Key'Down  = withGamePosition game $ \(x,y) -> (x, y - 20)
+update game W.Key'Left  = withGamePosition game $ \(x,y) -> (x - 20, y)
+update game W.Key'Right = withGamePosition game $ \(x,y) -> (x + 20, y)
 
-mainLoop window glids frames state = do
+handleEvent game (W.Key'Space, W.KeyState'Pressed) = game {gameLight = not (gameLight game)}
+handleEvent game _ = game
+
+withGamePosition game f = game {gamePosition = f (gamePosition game)}
+
+mainLoop window glids frames events state = do
     draw glids state
     W.swapBuffers window
 
     W.pollEvents
 
+    newEvents <- atomicModifyIORef events (\e -> ([], e)) 
+
     down <- filterM (pressed window) [W.Key'Up, W.Key'Down, W.Key'Left, W.Key'Right]
-    let state' = foldl update state down
+
+    let state' = foldl handleEvent (foldl update state down) newEvents
 
     ks <- W.getKey window W.Key'Escape
     let continue = ks /= W.KeyState'Pressed
@@ -318,10 +336,12 @@ mainLoop window glids frames state = do
     let delay = round $ 1000000 * (frames / 30 - t)
     if delay > 0 then threadDelay delay else return ()
 
-    when continue (mainLoop window glids (frames + 1) state')
+    when continue (mainLoop window glids (frames + 1) events state')
 
 cleanUpGLStuff GLIds{..} = do
     with vertexArrayId $ glDeleteVertexArrays 1
+
+handleKey events window key n st mod = modifyIORef events (++ [(key, st)])
 
 main = do
     W.init
@@ -330,7 +350,11 @@ main = do
     -- W.enableKeyRepeat
     ids <- initGLStuff
     print ids
-    mainLoop window ids 0 (0, 0)
+
+    events <- newIORef []
+    
+    W.setKeyCallback window (Just $ handleKey events)
+    mainLoop window ids 0 events Game {gamePosition = (0, 0), gameLight = True}
     cleanUpGLStuff ids
     W.terminate
 
