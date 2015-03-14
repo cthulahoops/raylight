@@ -28,8 +28,6 @@ data GLIds = GLIds {
     playerObj :: !SceneObject,
     lights :: [RayLight],
     playerLight :: DrawableTexture,
-    lightPosUniform :: !GLint,
-    lightColorUniform :: !GLint,
     lightTextures :: ![DrawableTexture],
     shadowUniform :: !GLint,
     colorUniform  :: !GLint,
@@ -160,9 +158,6 @@ initGLStuff = do
 
     glEnable gl_BLEND
 
-    lightPosUniform   <- getUniform progLight "lightPos"
-    lightColorUniform <- getUniform progLight "lightColor"
-
     shadowUniform   <- getUniform progScene "shadowTex"
     textureUniform  <- getUniform progScene "texture"
     normalUniform   <- getUniform progScene "normalTexture"
@@ -205,21 +200,17 @@ initGLStuff = do
 
 renderLight :: GLuint -> RayLight -> DrawableTexture -> IO ()
 renderLight progLight light drawable = do
-    lightPosUniform   <- getUniform progLight "lightPos"
-    lightColorUniform <- getUniform progLight "lightColor"
-
     glBindFramebuffer gl_FRAMEBUFFER (drawableFramebuffer drawable)
     glViewport 0 0 2048 2048
     glClear gl_COLOR_BUFFER_BIT
     glUseProgram progLight
     glEnableVertexAttribArray 0  -- 1st attribute: vertices
     glBlendFunc gl_ONE gl_ONE
-    drawLight lightPosUniform lightColorUniform light
+    drawLight light
     return ()
 
-drawLight :: GLuniform -> GLuniform -> RayLight -> IO ()
-drawLight lightPosUniform lightColorUniform light@RayLight{..} = do
-    uniformV3 lightColorUniform lightColor
+drawLight :: RayLight -> IO ()
+drawLight light@RayLight{..} = do
     (count, bufferId) <- makeLight light example
     glBindBuffer gl_ARRAY_BUFFER bufferId
     glVertexAttribPointer 0 3 gl_FLOAT (fromBool False) 0 nullPtr
