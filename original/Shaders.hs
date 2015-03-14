@@ -1,5 +1,6 @@
 module Shaders where
 
+import Graphics.Rendering.OpenGL
 import Graphics.Rendering.OpenGL.Raw
 import Foreign
 import Foreign.C.String
@@ -45,3 +46,12 @@ getAttribute progId name = fromIntegral <$> (withCString name $ glGetAttribLocat
 
 getUniform :: GLuint -> String -> IO GLint
 getUniform progId name = fromIntegral <$> (withCString name $ glGetUniformLocation progId)
+
+uniformV2 :: GLint -> Vector2 Integer -> IO ()
+uniformV2 uniform (Vector2 x y) = glUniform2f uniform (fromIntegral x) (fromIntegral y)
+
+uniformV3i :: GLint -> Vector3 Integer -> IO ()
+uniformV3i uniform (Vector3 x y z) = glUniform3f uniform (fromIntegral x) (fromIntegral y) (fromIntegral z)
+
+uniformV3 :: GLint -> Vector3 GLfloat -> IO ()
+uniformV3 uniform (Vector3 x y z) = glUniform3f uniform x y z

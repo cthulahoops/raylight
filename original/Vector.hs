@@ -36,4 +36,6 @@ instance Vector Vector2 where
 toVector (Vertex3 x y z) = Vector3 x y z
 toNormal (Vector3 x y z) = Normal3 x y z
 
+xy (Vector3 x y z) = Vector2 x y
+
 (Vector3 x1 y1 z1) `cross` (Vector3 x2 y2 z2) = Vector3 (y1 * z2 - y2 * z1) (z1 * x2 - z2 * x1) (x1 * y2 - x2 * y1)

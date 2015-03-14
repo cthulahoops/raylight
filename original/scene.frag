@@ -8,21 +8,33 @@ in vec2 fragmentPosition;
 out vec3 color;
 
 uniform sampler2D texture;
+uniform sampler2D normalTexture;
+
 uniform vec3 drawColor;
 
 uniform sampler2D shadowTex[6];
 uniform vec3 lightPos[6];
+uniform vec3 emmissive;
+
+const float zoom = 0.001;
+const int n_lights = 6;
 
 void main()
 {
-    const int n_lights = 6;
+    vec3 surfaceNormal;
+
+    if (fragmentNormal == vec3(0,0,1)) {
+        surfaceNormal = normalize(2 * texture2D(normalTexture, UV * 20).rgb - 1);
+    } else {
+        surfaceNormal = normalize(fragmentNormal);
+    }
 
     vec3 diffuse = vec3(0,0,0);
     for (int i = 0; i < n_lights; i++) {
         vec3 light = texture2D(shadowTex[i], UV).rgb;
-        vec3 d = vec3(fragmentPosition,0) - (lightPos[i] * 0.0008);
+        vec3 d = (lightPos[i] * zoom) - vec3(fragmentPosition,0);
         float a = 1 / (1 + 5 * length(d));
-        float s = clamp(dot(normalize(d), normalize(-1 * fragmentNormal)), 0, 1); 
+        float s = clamp(dot(normalize(d), surfaceNormal), 0, 1); 
         diffuse += a * s * light;
     }
 
@@ -30,8 +42,8 @@ void main()
     vec3 lighting = diffuse + ambient;
 
     if (drawColor == vec3(0,0,0)) {
-        color = lighting * texture2D(texture, UV * 20).rgb;
+        color = lighting * texture2D(texture, UV * 20).rgb + emmissive;
     } else {
-        color = lighting * drawColor.rgb;
+        color = lighting * drawColor.rgb + emmissive;
     }
 }

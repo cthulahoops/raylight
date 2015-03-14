@@ -26,16 +26,19 @@ data GLIds = GLIds {
     wallObj  :: !SceneObject,
     playerObj :: !SceneObject,
     lights :: [RayLight],
+    playerLight :: DrawableTexture,
     lightPosUniform :: !GLint,
     lightColorUniform :: !GLint,
-    lightTextures :: ![GLuint],
+    lightTextures :: ![DrawableTexture],
     shadowUniform :: !GLint,
     colorUniform  :: !GLint,
     locationUniform :: !GLint,
     textureUniform :: !GLint,
+    normalUniform :: !GLint,
     posAttrib :: !GLuint,
     normalAttrib :: !GLuint,
-    tex :: !GLuint}
+    floorTexture :: !GLuint,
+    floorNormal :: !GLuint}
     deriving (Show)
 
 segmentToTriangle (Vector2 x0 y0) (Segment (Vector2 x1 y1) (Vector2 x2 y2)) = [x0, y0, 0, x1 + x0, y1 + y0, 0, x2 + x0, y2 + y0, 0]
@@ -69,20 +72,18 @@ type GLtexture = GLuint
 type GLuniform = GLint
 
 data RayLight = RayLight {
-        lightPos   :: Vector3 Integer,
         lightColor :: Vector3 GLfloat,
-        lightVertices :: !(Int, GLuint)
+        lightPos   :: Vector2 Integer
     } 
     deriving (Show)
 
-makeLight :: Vector3 GLfloat -> Vector2 Integer -> [Segment] -> IO RayLight
-makeLight color position segments = do
-    let segments' = map (segmentTranslate $ neg position) segments
-    let lit = map fromIntegral $ concat $ map (segmentToTriangle position) $ litSegments segments'
+makeLight :: RayLight -> [Segment] -> IO (Int, GLuint)
+makeLight RayLight{..} segments = do
+    let segments' = map (segmentTranslate $ neg lightPos) segments
+    let lit = map fromIntegral $ concat $ map (segmentToTriangle lightPos) $ litSegments segments'
     let count = length lit
     buffer <- fillNewBuffer lit
-    return $ RayLight {lightPos = withHeight position, lightColor = color, lightVertices = (count, buffer)}
-    where withHeight (Vector2 x y) = Vector3 x y 100
+    return $ (count, buffer)
 
 data SceneObject = SceneObject {
         soPosition :: !GLuint,
@@ -105,12 +106,17 @@ drawObject obj (posAttrib, normalAttrib) = do
     bindBufferToAttrib (soNormals obj) normalAttrib
     glDrawArrays (soPoly obj) 0 (fromIntegral $ soCount obj)
 
-createFrameBuffer :: GLint -> IO (GLuint, GLuint)
+data DrawableTexture = DrawableTexture {
+    drawableFramebuffer :: !GLuint,
+    drawableTexture :: !GLuint
+} deriving (Show)
+
+createFrameBuffer :: GLint -> IO DrawableTexture
 createFrameBuffer size = do
     -- Create a texture as a render target
-    fb <- withNewPtr (glGenFramebuffers 1)
-    glBindFramebuffer gl_FRAMEBUFFER fb
-    putStrLn $ "Framebuffer: " ++ show fb
+    frameBuffer <- withNewPtr (glGenFramebuffers 1)
+    glBindFramebuffer gl_FRAMEBUFFER frameBuffer
+    putStrLn $ "Framebuffer: " ++ show frameBuffer
   
     -- The texture we're going to render to
     renderedTexture <- withNewPtr (glGenTextures 1)
@@ -142,7 +148,7 @@ createFrameBuffer size = do
 
     status <- glCheckFramebufferStatus gl_FRAMEBUFFER 
     when (status /= gl_FRAMEBUFFER_COMPLETE) $ fail "Incomplete framebuffer"
-    return (fb, renderedTexture)
+    return $ DrawableTexture frameBuffer renderedTexture
 
 initGLStuff = do
     glClearColor 0.0 0.0 0.0 0
@@ -158,19 +164,19 @@ initGLStuff = do
 
     shadowUniform   <- getUniform progScene "shadowTex"
     textureUniform  <- getUniform progScene "texture"
+    normalUniform   <- getUniform progScene "normalTexture"
     colorUniform    <- getUniform progScene "drawColor"
     locationUniform <- getUniform progScene "loc"
 
     posAttrib <- getAttribute progScene "vertexPosition_modelspace"
     normalAttrib <- getAttribute progScene "vertexNormal"
 
-    light1 <- makeLight (Vector3 0.8 0.8 0.8) (Vector2 0 0) example
-    light2 <- makeLight (Vector3 0.8 0.0 0.0) (Vector2 700 (-700)) example
-    light3 <- makeLight (Vector3 0.4 0.0 0.4) (Vector2 (-950) 975) example
-    light4 <- makeLight (Vector3 0.0 0.4 0.4) (Vector2 950 975) example
-    light5 <- makeLight (Vector3 0.4 0.4 0.0) (Vector2 (-950) (-975)) example
-    light6 <- makeLight (Vector3 0.0 0.0 0.4) (Vector2 950 (-975)) example
-    let lights = [light1,light2,light3,light4,light5,light6]
+    let lights = [
+                    RayLight (Vector3 0.8 0.8 0.8) (Vector2 0 0),
+                    RayLight (Vector3 0.8 0.0 0.0) (Vector2 700 (-700)),
+                    RayLight (Vector3 0.4 0.0 0.4) (Vector2 (-950) 975),
+                    RayLight (Vector3 0.0 0.4 0.4) (Vector2 950 975), 
+                    RayLight (Vector3 0.4 0.4 0.0) (Vector2 (-950) (-975))]
 
     let (verts, norms) = unzip $ map segmentToBox example
 
@@ -187,44 +193,33 @@ initGLStuff = do
     playerObj <- makeSceneObj gl_TRIANGLES vertsp vertsp
 
     -- Textures
-    tex <- loadBMP "imgs/cobble.bmp"
+    floorTexture <- loadBMP "152.bmp"
+    floorNormal  <- loadBMP "152_norm.bmp"
 
-    lightTextures <- mapM (renderLight progLight) lights
+    lightTextures <- replicateM (length lights) $ createFrameBuffer 2048 
+    zipWithM_ (renderLight progLight) lights lightTextures
 
+    playerLight <- createFrameBuffer 2048
     return GLIds{..}
 
-
-renderLight :: GLuint -> RayLight -> IO GLtexture
-renderLight progLight light = do
-    (lightFB, lightTexture) <- createFrameBuffer 800
-
+renderLight :: GLuint -> RayLight -> DrawableTexture -> IO ()
+renderLight progLight light drawable = do
     lightPosUniform   <- getUniform progLight "lightPos"
     lightColorUniform <- getUniform progLight "lightColor"
 
-    glBindFramebuffer gl_FRAMEBUFFER lightFB
-    glViewport 0 0 800 800
+    glBindFramebuffer gl_FRAMEBUFFER (drawableFramebuffer drawable)
+    glViewport 0 0 2048 2048
     glClear gl_COLOR_BUFFER_BIT
     glUseProgram progLight
     glEnableVertexAttribArray 0  -- 1st attribute: vertices
     glBlendFunc gl_ONE gl_ONE
     drawLight lightPosUniform lightColorUniform light
-    return lightTexture
-
-uniformV2 :: GLint -> Vector2 Integer -> IO ()
-uniformV2 uniform (Vector2 x y) = glUniform2f uniform (fromIntegral x) (fromIntegral y)
-
-uniformV3i :: GLint -> Vector3 Integer -> IO ()
-uniformV3i uniform (Vector3 x y z) = glUniform3f uniform (fromIntegral x) (fromIntegral y) (fromIntegral z)
-
-uniformV3 :: GLint -> Vector3 GLfloat -> IO ()
-uniformV3 uniform (Vector3 x y z) = glUniform3f uniform x y z
-
+    return ()
 
 drawLight :: GLuniform -> GLuniform -> RayLight -> IO ()
-drawLight lightPosUniform lightColorUniform RayLight{..} = do
-    uniformV3i lightPosUniform lightPos
+drawLight lightPosUniform lightColorUniform light@RayLight{..} = do
     uniformV3 lightColorUniform lightColor
-    let (count, bufferId) = lightVertices
+    (count, bufferId) <- makeLight light example
     glBindBuffer gl_ARRAY_BUFFER bufferId
     glVertexAttribPointer 0 3 gl_FLOAT (fromBool False) 0 nullPtr
     glDrawArrays gl_TRIANGLES 0 (fromIntegral count)
@@ -234,7 +229,12 @@ bindBufferToAttrib bufId attribLoc = do
     glBindBuffer gl_ARRAY_BUFFER bufId
     glVertexAttribPointer attribLoc 3 gl_FLOAT (fromBool False) 0 nullPtr
 
+draw :: GLIds -> (Integer, Integer) -> IO ()
 draw GLIds{..} (x, y) = do
+    -- Render light before we do any drawing!
+    let pl = RayLight (Vector3 0.8 0.8 0.4) (Vector2 x y)
+    renderLight progLight pl playerLight
+
     glBindFramebuffer gl_FRAMEBUFFER 0
     glViewport 0 0 800 800
 
@@ -245,24 +245,35 @@ draw GLIds{..} (x, y) = do
     glBlendFunc gl_ONE gl_ZERO
 
     glActiveTexture gl_TEXTURE1
-    glBindTexture gl_TEXTURE_2D tex
+    glBindTexture gl_TEXTURE_2D floorTexture
     glUniform1i textureUniform 1
-    
+
+    glActiveTexture gl_TEXTURE2
+    glBindTexture gl_TEXTURE_2D floorNormal
+    glUniform1i normalUniform 2
+
+    glActiveTexture gl_TEXTURE3
+    glBindTexture gl_TEXTURE_2D (drawableTexture playerLight)
+
     zipWithM_ (\t l -> do
         glActiveTexture t
-        glBindTexture gl_TEXTURE_2D l) [gl_TEXTURE2..gl_TEXTURE7] lightTextures
+        glBindTexture gl_TEXTURE_2D l) [gl_TEXTURE4..] (map drawableTexture lightTextures)
 
-    withArray [2..7] (glUniform1iv shadowUniform 6)
+    withArray [3..8] (glUniform1iv shadowUniform 6)
 
     glUniform2f locationUniform 0 0
 
     camera <- getUniform progScene "cameraPosition"
-    glUniform2f camera (-x) (-y)
+    glUniform2f camera (fromIntegral $ -x) (fromIntegral $ -y)
 
     u <- getUniform progScene "lightPos"
 
-    let lp = concat $ [[fromIntegral x, fromIntegral y, fromIntegral z] | Vector3 x y z <- map lightPos lights]
+    let lp = concat $ [[fromIntegral x, fromIntegral y, 100]
+                | Vector2 x y <- map lightPos (pl:lights)]
     withArray lp (\p -> glUniform3fv u 6 p)
+
+    em <- getUniform progScene "emmissive"
+    glUniform3f em 0 0 0
  
     -- Draw the floor
     glUniform3f colorUniform 0 0 0
@@ -276,7 +287,8 @@ draw GLIds{..} (x, y) = do
     drawObject wallObj (posAttrib, normalAttrib)
 
     -- Draw the player.
-    glUniform2f locationUniform x y 
+    glUniform3f em 0.8 0.8 0.4
+    glUniform2f locationUniform (fromIntegral x) (fromIntegral y) 
     glUniform3f colorUniform 1.0 1.0 1.0
     drawObject playerObj (posAttrib, normalAttrib)
     glDisableVertexAttribArray 0
