@@ -296,8 +296,12 @@ draw GLIds{..} Game{..} = do
     -- Draw the player.
     uniformV3 em playerColor
     glUniform2f locationUniform (fromIntegral x) (fromIntegral y) 
-    glUniform3f colorUniform 1.0 1.0 1.0
     drawObject playerObj (posAttrib, normalAttrib)
+    
+    forM_ lights $ \light -> do
+        uniformV3 em $ lightColor light
+        uniformV2 locationUniform $ lightPos light
+        drawObject playerObj (posAttrib, normalAttrib)
     glDisableVertexAttribArray 0
 
 pressed window key = do
