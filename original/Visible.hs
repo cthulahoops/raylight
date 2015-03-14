@@ -276,11 +276,17 @@ draw GLIds{..} Game{..} = do
     camera <- getUniform progScene "cameraPosition"
     glUniform2f camera (fromIntegral $ -x) (fromIntegral $ -y)
 
-    u <- getUniform progScene "lightPos"
+    let allLights = pl:lights
 
+    u <- getUniform progScene "lightPos"
     let lp = concat $ [[fromIntegral x, fromIntegral y, 100]
-                | Vector2 x y <- map lightPos (pl:lights)]
+                | Vector2 x y <- map lightPos allLights]
     withArray lp (\p -> glUniform3fv u 6 p)
+
+    u2 <- getUniform progScene "lightColor"
+    let lp = concat $ [[x, y, z]
+                | Vector3 x y z <- map lightColor allLights]
+    withArray lp (\p -> glUniform3fv u2 6 p)
 
     em <- getUniform progScene "emmissive"
     glUniform3f em 0 0 0
