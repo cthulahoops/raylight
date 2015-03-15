@@ -13,6 +13,8 @@ import Data.IORef
 import Foreign
 import Foreign.C.String
 
+import System.Random
+
 import BMP
 
 import Vector
@@ -191,8 +193,11 @@ initGLStuff = do
     lightObj <- makeSceneObj gl_TRIANGLES (map (* 0.3) vertsp) (map (* 0.3) vertsp)
 
     -- Textures
-    floorTexture <- loadBMP "152.bmp"
-    floorNormal  <- loadBMP "152_norm.bmp"
+    texId <- randomRIO (151,200) :: IO Integer
+    putStrLn $ "Random texture: " ++ show texId
+
+    floorTexture <- loadBMP $ "50/" ++ show texId ++ ".bmp"
+    floorNormal  <- loadBMP $ "50/" ++ show texId ++ "_norm.bmp"
 
     lightTextures <- replicateM (length lights) $ createFrameBuffer 2048 
     zipWithM_ (renderLight progLight) lights lightTextures
