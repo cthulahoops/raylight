@@ -68,3 +68,6 @@ instance Uniform (Vector2 Integer) where
 instance Uniform Integer where
     setUniform uniform x = glUniform1i uniform (fromIntegral x)
     setUniformArray uniform xs = withArray (map fromIntegral xs) $ glUniform1iv uniform (fromIntegral $ length xs)
+
+instance Uniform GLfloat where
+    setUniform uniform x = glUniform1f uniform x
