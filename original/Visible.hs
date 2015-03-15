@@ -262,7 +262,7 @@ draw GLIds{..} Game{..} = do
         glActiveTexture t
         glBindTexture gl_TEXTURE_2D l) [gl_TEXTURE4..] (map drawableTexture lightTextures)
 
-    withArray [3..8] (glUniform1iv shadowUniform 6)
+    setUniformArray shadowUniform (take 6 [3..] :: [Integer])
 
     setUniform locationUniform (Vector2 0 (0 :: GLfloat))
 
@@ -272,14 +272,11 @@ draw GLIds{..} Game{..} = do
     let allLights = pl:lights
 
     u <- getUniform progScene "lightPos"
-    let lp = concat $ [[fromIntegral x, fromIntegral y, 100]
-                | Vector2 x y <- map lightPos allLights]
-    withArray lp (\p -> glUniform3fv u 6 p)
+    setUniformArray u [Vector3 (fromIntegral x) (fromIntegral y) (100 :: GLfloat)
+        | Vector2 x y <- map lightPos allLights]
 
     u2 <- getUniform progScene "lightColor"
-    let lp = concat $ [[x, y, z]
-                | Vector3 x y z <- map lightColor allLights]
-    withArray lp (\p -> glUniform3fv u2 6 p)
+    setUniformArray u2 $ map lightColor allLights
 
     em <- getUniform progScene "emmissive"
     setUniform em (Vector3 0 0 (0 :: GLfloat))

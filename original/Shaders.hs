@@ -52,9 +52,12 @@ type GLuniform = GLint
 
 class Uniform a where
     setUniform :: GLuniform -> a -> IO ()
+    setUniformArray :: GLuniform -> [a] -> IO ()
 
 instance Uniform (Vector3 GLfloat) where 
     setUniform uniform (Vector3 x y z) = glUniform3f uniform x y z
+    setUniformArray uniform vs = let ps = concat $ [[x, y, z] | Vector3 x y z <- vs]
+                                    in withArray ps $ glUniform3fv uniform (fromIntegral $ length ps)
 
 instance Uniform (Vector2 GLfloat) where 
     setUniform uniform (Vector2 x y) = glUniform2f uniform x y
@@ -64,3 +67,4 @@ instance Uniform (Vector2 Integer) where
 
 instance Uniform Integer where
     setUniform uniform x = glUniform1i uniform (fromIntegral x)
+    setUniformArray uniform xs = withArray (map fromIntegral xs) $ glUniform1iv uniform (fromIntegral $ length xs)
