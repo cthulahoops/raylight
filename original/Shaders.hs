@@ -1,6 +1,7 @@
+{-# LANGUAGE FlexibleInstances #-}
 module Shaders where
 
-import Graphics.Rendering.OpenGL
+import Graphics.Rendering.OpenGL hiding (Uniform)
 import Graphics.Rendering.OpenGL.Raw
 import Foreign
 import Foreign.C.String
@@ -47,11 +48,19 @@ getAttribute progId name = fromIntegral <$> (withCString name $ glGetAttribLocat
 getUniform :: GLuint -> String -> IO GLint
 getUniform progId name = fromIntegral <$> (withCString name $ glGetUniformLocation progId)
 
-uniformV2 :: GLint -> Vector2 Integer -> IO ()
-uniformV2 uniform (Vector2 x y) = glUniform2f uniform (fromIntegral x) (fromIntegral y)
+type GLuniform = GLint
 
-uniformV3i :: GLint -> Vector3 Integer -> IO ()
-uniformV3i uniform (Vector3 x y z) = glUniform3f uniform (fromIntegral x) (fromIntegral y) (fromIntegral z)
+class Uniform a where
+    setUniform :: GLuniform -> a -> IO ()
 
-uniformV3 :: GLint -> Vector3 GLfloat -> IO ()
-uniformV3 uniform (Vector3 x y z) = glUniform3f uniform x y z
+instance Uniform (Vector3 GLfloat) where 
+    setUniform uniform (Vector3 x y z) = glUniform3f uniform x y z
+
+instance Uniform (Vector2 GLfloat) where 
+    setUniform uniform (Vector2 x y) = glUniform2f uniform x y
+
+instance Uniform (Vector2 Integer) where 
+    setUniform uniform (Vector2 x y) = glUniform2f uniform (fromIntegral x) (fromIntegral y)
+
+instance Uniform Integer where
+    setUniform uniform x = glUniform1i uniform (fromIntegral x)

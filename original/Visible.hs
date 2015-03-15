@@ -249,11 +249,11 @@ draw GLIds{..} Game{..} = do
 
     glActiveTexture gl_TEXTURE1
     glBindTexture gl_TEXTURE_2D floorTexture
-    glUniform1i textureUniform 1
+    setUniform textureUniform (1 :: Integer)
 
     glActiveTexture gl_TEXTURE2
     glBindTexture gl_TEXTURE_2D floorNormal
-    glUniform1i normalUniform 2
+    setUniform normalUniform (2 :: Integer)
 
     glActiveTexture gl_TEXTURE3
     glBindTexture gl_TEXTURE_2D (drawableTexture playerLight)
@@ -264,10 +264,10 @@ draw GLIds{..} Game{..} = do
 
     withArray [3..8] (glUniform1iv shadowUniform 6)
 
-    glUniform2f locationUniform 0 0
+    setUniform locationUniform (Vector2 0 (0 :: GLfloat))
 
     camera <- getUniform progScene "cameraPosition"
-    glUniform2f camera (fromIntegral $ -x) (fromIntegral $ -y)
+    setUniform camera (Vector2 (-x) (-y))
 
     let allLights = pl:lights
 
@@ -282,27 +282,28 @@ draw GLIds{..} Game{..} = do
     withArray lp (\p -> glUniform3fv u2 6 p)
 
     em <- getUniform progScene "emmissive"
-    glUniform3f em 0 0 0
+    setUniform em (Vector3 0 0 (0 :: GLfloat))
  
     -- Draw the floor
-    glUniform3f colorUniform 0 0 0
+    setUniform colorUniform (Vector3 0 0 (0 :: GLfloat))
     drawObject floorObj (posAttrib, normalAttrib)
 
     -- Disable floor texture
-    glUniform1i textureUniform 0
+    setUniform textureUniform (0 :: Integer)
+    setUniform normalUniform (0 :: Integer)
 
     -- Draw the walls
-    glUniform3f colorUniform 1.0 1.0 1.0
+    setUniform colorUniform (Vector3 1.0 1.0 (1.0 :: GLfloat))
     drawObject wallObj (posAttrib, normalAttrib)
 
     -- Draw the player.
-    uniformV3 em playerColor
-    glUniform2f locationUniform (fromIntegral x) (fromIntegral y) 
+    setUniform em playerColor
+    setUniform locationUniform (Vector2 x y)
     drawObject playerObj (posAttrib, normalAttrib)
     
     forM_ lights $ \light -> do
-        uniformV3 em $ lightColor light
-        uniformV2 locationUniform $ lightPos light
+        setUniform em $ lightColor light
+        setUniform locationUniform $ lightPos light
         drawObject lightObj (posAttrib, normalAttrib)
     glDisableVertexAttribArray 0
 
