@@ -1,14 +1,28 @@
-import { EXAMPLE_WALLS, type Point, type Segment, segment, splitCrossings } from "./raylighting";
-import { Renderer } from "./renderer";
+import { EXAMPLE_WALLS, type Point, type Segment, segment, splitCrossings, visibilityTriangles } from "./raylighting";
+import { type Light, Renderer } from "./renderer";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
 const renderer = new Renderer(canvas);
 
 const LIGHT_COLOR = [0.4, 0.6, 1.0] as const;
 
+// Lights blend additively, so keep the static ones dim enough not to clip.
+const staticLights: Light[] = [
+  { position: [-500, -500], color: [0.35, 0.1, 0.1] },
+  { position: [650, 650], color: [0.1, 0.35, 0.1] },
+  { position: [-600, 600], color: [0.3, 0.25, 0.05] },
+];
+
 const drawnWalls: Segment[] = [...EXAMPLE_WALLS];
 // The sweep needs crossings as endpoints; recomputed only when walls change.
-let walls = splitCrossings(drawnWalls);
+let walls: Segment[] = [];
+
+function updateWalls(): void {
+  walls = splitCrossings(drawnWalls);
+  // Static lights don't move, so their sweep only needs redoing when walls change.
+  for (const light of staticLights) light.triangles = visibilityTriangles(light.position, walls);
+}
+updateWalls();
 let pointer: Point = [0, 0];
 let wallStart: Point | null = null; // set after the first click of a new wall
 
@@ -32,7 +46,7 @@ canvas.addEventListener("click", (e) => {
   } else {
     if (p[0] !== wallStart[0] || p[1] !== wallStart[1]) {
       drawnWalls.push(segment(wallStart, p));
-      walls = splitCrossings(drawnWalls);
+      updateWalls();
     }
     wallStart = null;
   }
@@ -48,6 +62,6 @@ window.addEventListener("keydown", (e) => {
 
 function draw(): void {
   const pending = wallStart ? segment(wallStart, pointer) : null;
-  renderer.render(walls, [{ position: pointer, color: LIGHT_COLOR }], pending);
+  renderer.render(walls, [...staticLights, { position: pointer, color: LIGHT_COLOR }], pending);
 }
 draw();

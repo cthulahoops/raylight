@@ -7,6 +7,8 @@ export type Color = readonly [number, number, number];
 export interface Light {
   position: Point;
   color: Color;
+  /** Precomputed visibility triangles; skips the sweep for lights that don't move. */
+  triangles?: Float32Array;
 }
 
 const VERTEX_SHADER = `#version 300 es
@@ -123,8 +125,8 @@ export class Renderer {
     // Lights add together where their visibility polygons overlap.
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE);
-    for (const { position, color } of lights) {
-      this.draw(visibilityTriangles(position, walls), color);
+    for (const { position, color, triangles } of lights) {
+      this.draw(triangles ?? visibilityTriangles(position, walls), color);
     }
 
     gl.disable(gl.BLEND);
