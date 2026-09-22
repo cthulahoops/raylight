@@ -51,6 +51,25 @@ export function wallQuads(walls: Segment[], thickness = 6): Float32Array {
   return Float32Array.from(verts);
 }
 
+/** Evenly bright colour with the given hue in [0, 1). Saturation and lightness fixed. */
+function hueColor(hue: number, saturation = 0.8, lightness = 0.6): Color {
+  const f = (n: number) => {
+    const k = (n + hue * 12) % 12;
+    const a = saturation * Math.min(lightness, 1 - lightness);
+    return lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+  };
+  return [f(0), f(8), f(4)];
+}
+
+/** Deterministic pseudo-random hue per wall index, so colours are stable across frames. */
+function wallHue(index: number): number {
+  let h = (index + 1) * 2654435761;
+  h ^= h >>> 15;
+  h = Math.imul(h, 2246822519);
+  h ^= h >>> 13;
+  return (h >>> 0) / 4294967296;
+}
+
 export class Renderer {
   private readonly gl: WebGL2RenderingContext;
   private readonly program: WebGLProgram;
@@ -109,7 +128,7 @@ export class Renderer {
     }
 
     gl.disable(gl.BLEND);
-    this.draw(wallQuads(walls), [1, 1, 1]);
+    walls.forEach((wall, i) => this.draw(wallQuads([wall]), hueColor(wallHue(i))));
     if (pending) this.draw(wallQuads([pending]), [0.5, 0.5, 0.5]);
   }
 }
