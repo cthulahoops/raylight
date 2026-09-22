@@ -2,15 +2,15 @@ import { EXAMPLE_WALLS, type Point, type Segment, segment, splitCrossings, visib
 import { type Light, Renderer } from "./renderer";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
-const renderer = new Renderer(canvas);
+const renderer = await Renderer.create(canvas);
 
-const LIGHT_COLOR = [0.4, 0.6, 1.0] as const;
+const LIGHT_COLOR = [1.2, 1.8, 3.0] as const;
 
-// Lights blend additively, so keep the static ones dim enough not to clip.
+// Colours exceed 1 because the textured floor is dark and falls off with distance.
 const staticLights: Light[] = [
-  { position: [-500, -500], color: [0.35, 0.1, 0.1] },
-  { position: [650, 650], color: [0.1, 0.35, 0.1] },
-  { position: [-600, 600], color: [0.3, 0.25, 0.05] },
+  { position: [-500, -500], color: [1.6, 0.4, 0.4] },
+  { position: [650, 650], color: [0.4, 1.6, 0.4] },
+  { position: [-600, 600], color: [1.4, 1.1, 0.2] },
 ];
 
 const drawnWalls: Segment[] = [...EXAMPLE_WALLS];
