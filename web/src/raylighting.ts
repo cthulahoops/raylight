@@ -142,6 +142,53 @@ export function litSegments(walls: Segment[]): Segment[] {
   return out;
 }
 
+const samePoint = (a: Point, b: Point) => a[0] === b[0] && a[1] === b[1];
+
+// --- Crossing walls ---------------------------------------------------------
+
+/**
+ * Cut walls wherever they cross, so crossings become sweep events.
+ *
+ * The sweep assumes the nearest wall is constant within a wedge, which fails
+ * where two walls cross mid-wedge. Crossing points are rounded to integers
+ * and both walls are cut at the same rounded point, so the pieces still meet
+ * exactly and integer coordinates are preserved.
+ */
+export function splitCrossings(walls: Segment[]): Segment[] {
+  const cuts: { t: number; point: Point }[][] = walls.map(() => []);
+  for (let i = 0; i < walls.length; i++) {
+    const [px, py] = walls[i].start;
+    const rx = walls[i].end[0] - px;
+    const ry = walls[i].end[1] - py;
+    for (let j = i + 1; j < walls.length; j++) {
+      const [qx, qy] = walls[j].start;
+      const sx = walls[j].end[0] - qx;
+      const sy = walls[j].end[1] - qy;
+      const det = rx * sy - ry * sx;
+      if (det === 0) continue; // parallel or collinear
+      const t = ((qx - px) * sy - (qy - py) * sx) / det;
+      const u = ((qx - px) * ry - (qy - py) * rx) / det;
+      if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+      const point: Point = [Math.round(px + t * rx), Math.round(py + t * ry)];
+      if (t > 0 && t < 1) cuts[i].push({ t, point });
+      if (u > 0 && u < 1) cuts[j].push({ t: u, point });
+    }
+  }
+
+  const out: Segment[] = [];
+  walls.forEach((wall, i) => {
+    let prev = wall.start;
+    for (const { point } of cuts[i].sort((a, b) => a.t - b.t)) {
+      if (!samePoint(point, prev)) {
+        out.push(segment(prev, point));
+        prev = point;
+      }
+    }
+    if (!samePoint(prev, wall.end)) out.push(segment(prev, wall.end));
+  });
+  return out;
+}
+
 // --- Public entry point -----------------------------------------------------
 
 /** Re-express walls relative to the light and orient them for the sweep. */
@@ -157,7 +204,6 @@ export function wallsAround(light: Point, walls: Iterable<Segment>): Segment[] {
 }
 
 const dist2 = (p: Point) => p[0] * p[0] + p[1] * p[1];
-const samePoint = (a: Point, b: Point) => a[0] === b[0] && a[1] === b[1];
 
 /**
  * Flat [x, y, ...] vertex list of triangles covering the lit region.

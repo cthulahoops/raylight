@@ -1,4 +1,4 @@
-import { EXAMPLE_WALLS, type Point, type Segment, segment } from "./raylighting";
+import { EXAMPLE_WALLS, type Point, type Segment, segment, splitCrossings } from "./raylighting";
 import { Renderer } from "./renderer";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
@@ -6,7 +6,9 @@ const renderer = new Renderer(canvas);
 
 const LIGHT_COLOR = [0.4, 0.6, 1.0] as const;
 
-const walls: Segment[] = [...EXAMPLE_WALLS];
+const drawnWalls: Segment[] = [...EXAMPLE_WALLS];
+// The sweep needs crossings as endpoints; recomputed only when walls change.
+let walls = splitCrossings(drawnWalls);
 let pointer: Point = [0, 0];
 let wallStart: Point | null = null; // set after the first click of a new wall
 
@@ -28,7 +30,10 @@ canvas.addEventListener("click", (e) => {
   if (wallStart === null) {
     wallStart = p;
   } else {
-    if (p[0] !== wallStart[0] || p[1] !== wallStart[1]) walls.push(segment(wallStart, p));
+    if (p[0] !== wallStart[0] || p[1] !== wallStart[1]) {
+      drawnWalls.push(segment(wallStart, p));
+      walls = splitCrossings(drawnWalls);
+    }
     wallStart = null;
   }
   draw();

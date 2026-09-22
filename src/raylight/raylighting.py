@@ -166,6 +166,48 @@ def lit_segments(walls: list[Segment]) -> Iterator[Segment]:
             active = [w for w in active if w != event.wall]
 
 
+# --- Crossing walls -----------------------------------------------------------
+
+
+def split_crossings(walls: list[Segment]) -> list[Segment]:
+    """Cut walls wherever they cross, so crossings become sweep events.
+
+    The sweep assumes the nearest wall is constant within a wedge, which fails
+    where two walls cross mid-wedge. Crossing points are rounded to integers
+    and both walls are cut at the same rounded point, so the pieces still
+    meet exactly and integer coordinates are preserved.
+    """
+    cuts: list[list[tuple[float, Point]]] = [[] for _ in walls]
+    for i, a in enumerate(walls):
+        (px, py), (rx, ry) = a.start, a.direction
+        for j in range(i + 1, len(walls)):
+            b = walls[j]
+            (qx, qy), (sx, sy) = b.start, b.direction
+            det = rx * sy - ry * sx
+            if det == 0:
+                continue  # parallel or collinear
+            t = ((qx - px) * sy - (qy - py) * sx) / det
+            u = ((qx - px) * ry - (qy - py) * rx) / det
+            if not (0 <= t <= 1 and 0 <= u <= 1):
+                continue
+            point = (round(px + t * rx), round(py + t * ry))
+            if 0 < t < 1:
+                cuts[i].append((t, point))
+            if 0 < u < 1:
+                cuts[j].append((u, point))
+
+    out: list[Segment] = []
+    for wall, wall_cuts in zip(walls, cuts):
+        prev = wall.start
+        for _, point in sorted(wall_cuts):
+            if point != prev:
+                out.append(Segment(prev, point))
+                prev = point
+        if prev != wall.end:
+            out.append(Segment(prev, wall.end))
+    return out
+
+
 # --- Public entry point -------------------------------------------------------
 
 
