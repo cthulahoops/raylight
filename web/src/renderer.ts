@@ -1,30 +1,40 @@
 /** WebGL2 rendering of light visibility polygons over walls. */
 
-import { type Point, type Segment, visibilityTriangles } from "./raylighting";
+import { type Point, type Segment } from "./raylighting";
 
 export type Color = readonly [number, number, number];
 
 export interface Light {
   position: Point;
   color: Color;
-  /** Precomputed visibility triangles; skips the sweep for lights that don't move. */
-  triangles?: Float32Array;
+  /** Visibility triangles from the sweep; the caller keeps them in step with position and walls. */
+  triangles: Float32Array;
 }
 
+const AMBIENT: Color = [0.02, 0.02, 0.05];
+/** Walls are white, but a little below 1 so bright lights don't flatten them. */
+const WALL_ALBEDO = 0.8;
+
 // Floor lighting follows the Haskell scene shader: each light sits above the
-// plane, falls off with distance and shades the normal-mapped texture.
+// plane, falls off with distance and shades the normal-mapped texture. Walls
+// use the same lighting on a plain white vertical face, turned towards the
+// light; only the side the light can see is ever drawn lit.
 const LIT_VERTEX_SHADER = `#version 300 es
 in vec2 in_pos;
+in vec2 in_normal;
 uniform float scale;
 out vec2 world_pos;
+flat out vec2 wall_normal;
 void main() {
   world_pos = in_pos;
+  wall_normal = in_normal;
   gl_Position = vec4(in_pos * scale, 0.0, 1.0);
 }`;
 
 const LIT_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 in vec2 world_pos;
+flat in vec2 wall_normal;
 uniform sampler2D albedo;
 uniform sampler2D normal_map;
 uniform float tile_size;
@@ -32,12 +42,15 @@ uniform vec3 light_pos;
 uniform vec3 light_color;
 uniform vec3 ambient;
 uniform float falloff_rate;
+uniform bool wall;
 out vec4 frag_color;
 void main() {
   vec2 uv = world_pos / tile_size;
-  vec3 base = texture(albedo, uv).rgb;
-  vec3 n = normalize(2.0 * texture(normal_map, uv).rgb - 1.0);
   vec3 d = light_pos - vec3(world_pos, 0.0);
+  vec3 base = wall ? vec3(${WALL_ALBEDO}) : texture(albedo, uv).rgb;
+  vec3 n = wall
+    ? vec3(dot(wall_normal, d.xy) < 0.0 ? -wall_normal : wall_normal, 0.0)
+    : normalize(2.0 * texture(normal_map, uv).rgb - 1.0);
   float falloff = 1.0 / (1.0 + falloff_rate * length(d));
   float lambert = max(dot(normalize(d), n), 0.0);
   frag_color = vec4(base * (ambient + falloff * lambert * light_color), 1.0);
@@ -58,14 +71,10 @@ void main() {
   frag_color = vec4(color, 1.0);
 }`;
 
-const AMBIENT: Color = [0.02, 0.02, 0.05];
-/** Height of lights above the floor, in world units. */
-const LIGHT_HEIGHT = 200;
-/** Distance falloff per world unit: 1 / (1 + rate * distance). */
-const FALLOFF_RATE = 0.005;
 /** World units covered by one repeat of the floor texture. */
 const TILE_SIZE = 400;
 const POS_LOC = 0;
+const NORMAL_LOC = 1;
 
 function compile(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
   const shader = gl.createShader(type)!;
@@ -82,6 +91,7 @@ function link(gl: WebGL2RenderingContext, vertex: string, fragment: string): Web
   gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, vertex));
   gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, fragment));
   gl.bindAttribLocation(program, POS_LOC, "in_pos");
+  gl.bindAttribLocation(program, NORMAL_LOC, "in_normal");
   gl.linkProgram(program);
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
     throw new Error(`link: ${gl.getProgramInfoLog(program)}`);
@@ -121,32 +131,38 @@ export function wallQuads(walls: Segment[], thickness = 6): Float32Array {
   return Float32Array.from(verts);
 }
 
-/** Evenly bright colour with the given hue in [0, 1). Saturation and lightness fixed. */
-function hueColor(hue: number, saturation = 0.8, lightness = 0.6): Color {
-  const f = (n: number) => {
-    const k = (n + hue * 12) % 12;
-    const a = saturation * Math.min(lightness, 1 - lightness);
-    return lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
-  };
-  return [f(0), f(8), f(4)];
+/** Unit perpendicular of each wall, repeated for the six vertices of its quad. */
+function wallNormals(walls: Segment[]): Float32Array {
+  const normals: number[] = [];
+  for (const { start: [x1, y1], end: [x2, y2] } of walls) {
+    const len = Math.hypot(x2 - x1, y2 - y1) || 1;
+    for (let i = 0; i < 6; i++) normals.push(-(y2 - y1) / len, (x2 - x1) / len);
+  }
+  return Float32Array.from(normals);
 }
 
-/** Deterministic pseudo-random hue per wall index, so colours are stable across frames. */
-function wallHue(index: number): number {
-  let h = (index + 1) * 2654435761;
-  h ^= h >>> 15;
-  h = Math.imul(h, 2246822519);
-  h ^= h >>> 13;
-  return (h >>> 0) / 4294967296;
+// Stencil bits: WALL marks wall pixels for the whole frame; SEEN marks the
+// wall pixels inside the current light's visibility triangles.
+const WALL = 1;
+const SEEN = 2;
+
+export interface LightingParams {
+  /** Height of lights above the floor, in world units. */
+  lightHeight: number;
+  /** Distance falloff per world unit: 1 / (1 + rate * distance). */
+  falloffRate: number;
 }
 
 export class Renderer {
+  /** Read on every render, so changes take effect on the next frame. */
+  readonly lighting: LightingParams = { lightHeight: 200, falloffRate: 0.005 };
   private readonly gl: WebGL2RenderingContext;
   private readonly lit: WebGLProgram;
   private readonly flat: WebGLProgram;
-  private readonly litLocs: Record<"scale" | "lightPos" | "lightColor" | "ambient", WebGLUniformLocation>;
+  private readonly litLocs: Record<"scale" | "lightPos" | "lightColor" | "ambient" | "falloffRate" | "wall", WebGLUniformLocation>;
   private readonly flatLocs: Record<"scale" | "color", WebGLUniformLocation>;
   private readonly buffer: WebGLBuffer;
+  private readonly normalBuffer: WebGLBuffer;
   private readonly canvas: HTMLCanvasElement;
   private readonly worldExtent: number;
   private readonly floor: Float32Array;
@@ -171,10 +187,11 @@ export class Renderer {
       lightPos: litLoc("light_pos"),
       lightColor: litLoc("light_color"),
       ambient: litLoc("ambient"),
+      falloffRate: litLoc("falloff_rate"),
+      wall: litLoc("wall"),
     };
     gl.useProgram(this.lit);
     gl.uniform1f(litLoc("tile_size"), TILE_SIZE);
-    gl.uniform1f(litLoc("falloff_rate"), FALLOFF_RATE);
     gl.uniform1i(litLoc("albedo"), 0);
     gl.uniform1i(litLoc("normal_map"), 1);
     gl.activeTexture(gl.TEXTURE0);
@@ -188,6 +205,10 @@ export class Renderer {
       color: gl.getUniformLocation(this.flat, "color")!,
     };
 
+    this.normalBuffer = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.normalBuffer);
+    gl.vertexAttribPointer(NORMAL_LOC, 2, gl.FLOAT, false, 0, 0);
+
     this.buffer = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
     gl.enableVertexAttribArray(POS_LOC);
@@ -195,7 +216,7 @@ export class Renderer {
   }
 
   static async create(canvas: HTMLCanvasElement, worldExtent = 1000): Promise<Renderer> {
-    const gl = canvas.getContext("webgl2", { antialias: false });
+    const gl = canvas.getContext("webgl2", { antialias: false, stencil: true });
     if (!gl) throw new Error("WebGL2 is not available");
     const base = import.meta.env.BASE_URL;
     const [albedo, normalMap] = await Promise.all([
@@ -212,37 +233,67 @@ export class Renderer {
     gl.drawArrays(gl.TRIANGLES, 0, verts.length / 2);
   }
 
+  private drawWalls(verts: Float32Array): void {
+    this.gl.enableVertexAttribArray(NORMAL_LOC);
+    this.draw(verts);
+    this.gl.disableVertexAttribArray(NORMAL_LOC);
+  }
+
   render(walls: Segment[], lights: Light[], pending: Segment | null = null): void {
     const gl = this.gl;
     const scale = 1 / this.worldExtent;
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.clearColor(0, 0, 0, 1);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.clearStencil(0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+    const wallVerts = wallQuads(walls);
+    // Wall normals don't change between light passes, so upload them once.
+    // Only the wall draws enable the attribute; the floor ignores it.
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.normalBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, wallNormals(walls), gl.STREAM_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
 
-    // Ambient pass covers the whole floor; each light then adds its own
-    // contribution over just the triangles it can see.
+    // Ambient pass covers the whole floor, then the walls over it, marking
+    // their pixels so the floor lighting below leaves them alone.
     gl.useProgram(this.lit);
     gl.uniform1f(this.litLocs.scale, scale);
+    gl.uniform1f(this.litLocs.falloffRate, this.lighting.falloffRate);
     gl.uniform3f(this.litLocs.ambient, ...AMBIENT);
     gl.uniform3f(this.litLocs.lightColor, 0, 0, 0);
+    gl.uniform1i(this.litLocs.wall, 0);
     this.draw(this.floor);
+    gl.enable(gl.STENCIL_TEST);
+    gl.stencilFunc(gl.ALWAYS, WALL, 0xff);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
+    gl.uniform1i(this.litLocs.wall, 1);
+    this.drawWalls(wallVerts);
 
+    // Each light adds its contribution over just the triangles it can see.
+    // The sweep stops at wall centre lines, so the triangles reach over the
+    // near half of each visible wall: those pixels fail the floor's stencil
+    // test and get marked SEEN instead, then the wall pass lights and clears them.
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE);
     gl.uniform3f(this.litLocs.ambient, 0, 0, 0);
+    gl.stencilMask(SEEN);
     for (const { position, color, triangles } of lights) {
-      gl.uniform3f(this.litLocs.lightPos, position[0], position[1], LIGHT_HEIGHT);
+      gl.uniform3f(this.litLocs.lightPos, position[0], position[1], this.lighting.lightHeight);
       gl.uniform3f(this.litLocs.lightColor, ...color);
-      this.draw(triangles ?? visibilityTriangles(position, walls));
+      gl.uniform1i(this.litLocs.wall, 0);
+      gl.stencilFunc(gl.EQUAL, SEEN, WALL);
+      gl.stencilOp(gl.REPLACE, gl.KEEP, gl.KEEP);
+      this.draw(triangles);
+      gl.uniform1i(this.litLocs.wall, 1);
+      gl.stencilFunc(gl.EQUAL, WALL | SEEN, WALL | SEEN);
+      gl.stencilOp(gl.KEEP, gl.KEEP, gl.ZERO);
+      this.drawWalls(wallVerts);
     }
+    gl.stencilMask(0xff);
+    gl.disable(gl.STENCIL_TEST);
     gl.disable(gl.BLEND);
 
     gl.useProgram(this.flat);
     gl.uniform1f(this.flatLocs.scale, scale);
-    walls.forEach((wall, i) => {
-      gl.uniform3f(this.flatLocs.color, ...hueColor(wallHue(i)));
-      this.draw(wallQuads([wall]));
-    });
     if (pending) {
       gl.uniform3f(this.flatLocs.color, 0.5, 0.5, 0.5);
       this.draw(wallQuads([pending]));

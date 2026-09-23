@@ -5,12 +5,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>raylight</title>
     <style>
-      html, body { margin: 0; height: 100%; background: #111; display: grid; place-items: center; }
-      canvas { width: min(100vw, 100vh); height: min(100vw, 100vh); image-rendering: pixelated; }
+      html, body { margin: 0; height: 100%; background: #111; color: #ccc; font: 14px system-ui, sans-serif; }
+      body { display: flex; align-items: center; justify-content: center; }
+      canvas { --size: min(100vw - 16rem, 100vh); width: var(--size); height: var(--size); image-rendering: pixelated; }
+      #controls { width: 14rem; padding: 0 1rem; display: grid; gap: 0.75rem; }
+      #controls label { display: grid; grid-template-columns: 1fr auto; gap: 0.25rem; }
+      #controls input { grid-column: 1 / -1; width: 100%; }
     </style>
   </head>
   <body>
     <canvas id="scene" width="1024" height="1024"></canvas>
+    <form id="controls">
+      <label>Light height <output for="light-height"></output>
+        <input id="light-height" type="range" min="10" max="1000" step="10" value="200">
+      </label>
+      <label>Falloff rate <output for="falloff-rate"></output>
+        <input id="falloff-rate" type="range" min="0" max="0.01" step="0.0001" value="0.005">
+      </label>
+      <label>Fixed light flicker <output for="flicker"></output>
+        <input id="flicker" type="range" min="0" max="1" step="0.01" value="0.1">
+      </label>
+      <label>Pointer light colour
+        <input id="pointer-color" type="color" value="#6699ff">
+      </label>
+      <label>Pointer light intensity <output for="pointer-intensity"></output>
+        <input id="pointer-intensity" type="range" min="0" max="10" step="0.1" value="3">
+      </label>
+    </form>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
