@@ -39,8 +39,8 @@ const SURFACE_DISC = 2;
 // Floor lighting follows the Haskell scene shader: each light sits above the
 // plane, falls off with distance and shades the normal-mapped texture. Walls
 // use the same lighting on a plain white vertical face, turned towards the
-// light; only the side the light can see is ever drawn lit. Lit discs are
-// shaded as domes rising out of the floor.
+// light and taken at the light's height; only the side the light can see is
+// ever drawn lit. Lit discs are shaded as domes rising out of the floor.
 const LIT_VERTEX_SHADER = `#version 300 es
 in vec2 in_pos;
 in vec2 in_normal;
@@ -87,6 +87,9 @@ void main() {
   if (surface == ${SURFACE_WALL}) {
     base = vec3(${WALL_ALBEDO});
     n = vec3(dot(wall_normal, d.xy) < 0.0 ? -wall_normal : wall_normal, 0.0);
+    // Shade the wall where it faces the light head-on, level with it; at
+    // floor level a close light would only graze the face and it would darken.
+    d.z = 0.0;
   } else if (surface == ${SURFACE_DISC}) {
     vec2 o = (world_pos - disc.xy) / disc.z;
     base = disc_albedo;
