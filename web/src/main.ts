@@ -27,6 +27,11 @@ const playerLight: Light = {
   ...sweptLight(player.position, [1.2, 1.0, 0.7]),
   cone: { direction: [0, 1], halfAngle: (15 * Math.PI) / 180 },
 };
+// A dim, low glow with quick falloff that lights just the player's
+// surroundings. It shares the torch's position and sweep; colour, height and
+// falloff are set from the controls below.
+const playerGlow: Light = { ...playerLight, cone: undefined };
+const PLAYER_GLOW_COLOR: Color = [1, 0.85, 0.6];
 
 /** The point of the segment nearest to p. */
 function closestPoint([px, py]: Point, { start: [x1, y1], end: [x2, y2] }: Segment): Point {
@@ -167,6 +172,7 @@ function updateWalls(): void {
   for (const light of [...staticLights, pointerLight, playerLight]) {
     light.triangles = visibilityTriangles(light.position, walls);
   }
+  playerGlow.triangles = playerLight.triangles;
 }
 
 let wallStart: Point | null = null; // set after the first click of a new wall
@@ -244,6 +250,8 @@ function movePlayer(dt: number): void {
   // the light's position; the disc itself keeps its fractional position.
   playerLight.position = [Math.round(player.position[0]), Math.round(player.position[1])];
   playerLight.triangles = visibilityTriangles(playerLight.position, walls);
+  playerGlow.position = playerLight.position;
+  playerGlow.triangles = playerLight.triangles;
   aimTorch();
 }
 
@@ -269,7 +277,7 @@ function draw(time: DOMHighResTimeStamp): void {
     const k = flicker(seconds, i) * staticBrightness[i];
     return { ...light, color: [light.color[0] * k, light.color[1] * k, light.color[2] * k] };
   });
-  const lights = [...flickering, pointerLight, playerLight];
+  const lights = [...flickering, pointerLight, playerLight, playerGlow];
   for (const enemy of enemies) moveEnemy(enemy, dt, lights);
   const pending = wallStart ? segment(wallStart, pointerLight.position) : null;
   renderer.render(walls, lights, pending, [player, ...enemies.flatMap(enemyDiscs)]);
@@ -295,6 +303,12 @@ function slider(id: string, set: (value: number) => void): void {
 slider("light-height", (v) => (renderer.lighting.lightHeight = v));
 slider("falloff-rate", (v) => (renderer.lighting.falloffRate = v));
 slider("flicker", (v) => (flickerAmount = v));
+slider("glow-brightness", (v) => {
+  const [r, g, b] = PLAYER_GLOW_COLOR;
+  playerGlow.color = [r * v, g * v, b * v];
+});
+slider("glow-height", (v) => (playerGlow.height = v));
+slider("glow-falloff", (v) => (playerGlow.falloffRate = v));
 slider("enemy-threshold", (v) => (enemyLightThreshold = v));
 staticLights.forEach((_, i) => slider(`fixed-light-${i + 1}`, (v) => (staticBrightness[i] = v)));
 

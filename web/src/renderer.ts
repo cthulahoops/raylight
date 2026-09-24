@@ -19,6 +19,10 @@ export interface Light {
   triangles: Float32Array;
   /** Omitted for an omnidirectional light. */
   cone?: Cone;
+  /** Overrides LightingParams.lightHeight for this light. */
+  height?: number;
+  /** Overrides LightingParams.falloffRate for this light. */
+  falloffRate?: number;
 }
 
 /** Fraction of the cone's half-angle over which the beam edge fades. */
@@ -336,11 +340,11 @@ export class Renderer {
    * the light matters: a distant light grazes the flat floor, but still
    * fully lights the near side of a dome or a bump in the floor texture.
    */
-  brightnessAt({ position, color, triangles, cone }: Light, point: Point): number {
+  brightnessAt({ position, color, triangles, cone, height, falloffRate }: Light, point: Point): number {
     if (!insideTriangles(point, triangles)) return 0;
     const dx = point[0] - position[0];
     const dy = point[1] - position[1];
-    const h = this.lighting.lightHeight;
+    const h = height ?? this.lighting.lightHeight;
     const distance = Math.hypot(dx, dy, h);
     let beam = 1;
     if (cone) {
@@ -348,7 +352,7 @@ export class Renderer {
       const c = flat > 0 ? (dx * cone.direction[0] + dy * cone.direction[1]) / flat : 1;
       beam = smoothstep(Math.cos(cone.halfAngle), Math.cos(cone.halfAngle * (1 - CONE_EDGE_SOFTNESS)), c);
     }
-    const falloff = 1 / (1 + this.lighting.falloffRate * distance);
+    const falloff = 1 / (1 + (falloffRate ?? this.lighting.falloffRate) * distance);
     return Math.max(...color) * beam * falloff;
   }
 
@@ -407,8 +411,9 @@ export class Renderer {
     gl.blendFunc(gl.ONE, gl.ONE);
     gl.uniform3f(this.litLocs.ambient, 0, 0, 0);
     gl.stencilMask(SEEN);
-    for (const { position, color, triangles, cone } of lights) {
-      gl.uniform3f(this.litLocs.lightPos, position[0], position[1], this.lighting.lightHeight);
+    for (const { position, color, triangles, cone, height, falloffRate } of lights) {
+      gl.uniform3f(this.litLocs.lightPos, position[0], position[1], height ?? this.lighting.lightHeight);
+      gl.uniform1f(this.litLocs.falloffRate, falloffRate ?? this.lighting.falloffRate);
       gl.uniform3f(this.litLocs.lightColor, ...color);
       if (cone) {
         gl.uniform2f(this.litLocs.coneDir, cone.direction[0], cone.direction[1]);
