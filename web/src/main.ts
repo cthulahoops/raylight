@@ -321,4 +321,34 @@ function updatePointerColor(): void {
 input("pointer-color").addEventListener("input", updatePointerColor);
 slider("pointer-intensity", updatePointerColor);
 
+/** Copies text, falling back to a hidden textarea where the Clipboard API is missing (plain http). */
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard) return navigator.clipboard.writeText(text);
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.append(area);
+  area.select();
+  const copied = document.execCommand("copy");
+  area.remove();
+  if (!copied) throw new Error("copy failed");
+}
+
+// Copies every control's value as JSON, keyed by input id.
+const copyButton = document.querySelector<HTMLButtonElement>("#copy-settings")!;
+copyButton.addEventListener("click", async () => {
+  const inputs = [...document.querySelectorAll<HTMLInputElement>("#controls input")];
+  const settings = Object.fromEntries(inputs.map((el) => [el.id, el.type === "range" ? el.valueAsNumber : el.value]));
+  let result;
+  try {
+    await copyText(JSON.stringify(settings, null, 2));
+    result = "Copied";
+  } catch {
+    result = "Copy failed";
+  }
+  copyButton.textContent = result;
+  setTimeout(() => (copyButton.textContent = "Copy settings"), 1500);
+});
+
 requestAnimationFrame(draw);
