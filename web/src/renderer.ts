@@ -331,8 +331,10 @@ export class Renderer {
    * EQUAL so only that disc is lit (and clears SEEN), not those behind it.
    */
   /**
-   * How brightly a light shows on a white, upward-facing point of the floor,
-   * following the shader; 0 where the light can't see the point.
+   * How brightly a light shows on a white surface at the point turned to face
+   * it, following the shader; 0 where the light can't see the point. Facing
+   * the light matters: a distant light grazes the flat floor, but still
+   * fully lights the near side of a dome or a bump in the floor texture.
    */
   brightnessAt({ position, color, triangles, cone }: Light, point: Point): number {
     if (!insideTriangles(point, triangles)) return 0;
@@ -347,8 +349,7 @@ export class Renderer {
       beam = smoothstep(Math.cos(cone.halfAngle), Math.cos(cone.halfAngle * (1 - CONE_EDGE_SOFTNESS)), c);
     }
     const falloff = 1 / (1 + this.lighting.falloffRate * distance);
-    const lambert = h / distance;
-    return Math.max(...color) * beam * falloff * lambert;
+    return Math.max(...color) * beam * falloff;
   }
 
   private drawLitDiscs(discs: Disc[], depthFunc: GLenum): void {
