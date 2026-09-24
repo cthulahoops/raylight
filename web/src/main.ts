@@ -28,6 +28,44 @@ const playerLight: Light = {
   cone: { direction: [0, 1], halfAngle: (15 * Math.PI) / 180 },
 };
 
+/** Distance from p to the nearest point of the segment. */
+function distanceToSegment([px, py]: Point, { start: [x1, y1], end: [x2, y2] }: Segment): number {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy || 1)));
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+/** A random point at least `clearance` from every wall, the arena edge and the player. */
+function randomClearPoint(clearance: number): Point {
+  const limit = 1000 - clearance;
+  for (;;) {
+    const p: Point = [(Math.random() * 2 - 1) * limit, (Math.random() * 2 - 1) * limit];
+    const nearPlayer = Math.hypot(p[0] - player.position[0], p[1] - player.position[1]) < 4 * player.radius;
+    if (!nearPlayer && walls.every((w) => distanceToSegment(p, w) >= clearance)) return p;
+  }
+}
+
+// A static enemy: a dark grey body whose red eyes follow the player.
+const enemy: Disc = { position: randomClearPoint(2 * player.radius), radius: player.radius, color: [0.2, 0.2, 0.2] };
+const EYE_COLOR: Color = [1, 0.1, 0.1];
+
+/** The enemy's body plus two eyes set forward of its centre, facing the player. */
+function enemyDiscs(): Disc[] {
+  const [ex, ey] = enemy.position;
+  const dx = player.position[0] - ex;
+  const dy = player.position[1] - ey;
+  const len = Math.hypot(dx, dy) || 1;
+  const [fx, fy] = [dx / len, dy / len];
+  const r = enemy.radius;
+  const eye = (side: number): Disc => ({
+    position: [ex + fx * 0.45 * r - fy * side * 0.4 * r, ey + fy * 0.45 * r + fx * side * 0.4 * r],
+    radius: 0.2 * r,
+    color: EYE_COLOR,
+  });
+  return [enemy, eye(1), eye(-1)];
+}
+
 /** Point the torch at the pointer; keeps its last heading if the pointer is on the player. */
 function aimTorch(): void {
   const dx = pointerLight.position[0] - player.position[0];
@@ -124,7 +162,7 @@ function draw(time: DOMHighResTimeStamp): void {
     return { ...light, color: [light.color[0] * k, light.color[1] * k, light.color[2] * k] };
   });
   const pending = wallStart ? segment(wallStart, pointerLight.position) : null;
-  renderer.render(walls, [...flickering, pointerLight, playerLight], pending, [player]);
+  renderer.render(walls, [...flickering, pointerLight, playerLight], pending, [player, ...enemyDiscs()]);
   requestAnimationFrame(draw);
 }
 
