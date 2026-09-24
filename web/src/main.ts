@@ -208,6 +208,7 @@ function updateWalls(): void {
     light.triangles = visibilityTriangles(light.position, walls);
   }
   playerGlow.triangles = playerLight.triangles;
+  for (const flare of flares) flare.light.triangles = visibilityTriangles(flare.light.position, walls);
 }
 
 let wallStart: Point | null = null; // set after the first click of a new wall
@@ -256,6 +257,10 @@ const heldKeys = new Set<string>();
 
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") wallStart = null;
+  if (e.code === "Space") {
+    if (!e.repeat) throwFlare();
+    e.preventDefault();
+  }
   if (e.code in MOVE_KEYS && !e.ctrlKey && !e.metaKey && !e.altKey) {
     heldKeys.add(e.code);
     e.preventDefault();
@@ -301,21 +306,95 @@ function flicker(seconds: number, seed: number): number {
   return Math.max(0, 1 + flickerAmount * wobble);
 }
 
+/** Whether segment pq crosses or touches the wall. */
+function crosses(p: Point, q: Point, { start: a, end: b }: Segment): boolean {
+  const side = (o: Point, u: Point, v: Point) => Math.sign((u[0] - o[0]) * (v[1] - o[1]) - (u[1] - o[1]) * (v[0] - o[0]));
+  return side(p, q, a) !== side(p, q, b) && side(a, b, p) !== side(a, b, q);
+}
+
+// Space throws a flare towards the pointer. It flies until it reaches the
+// pointer or hits a wall, and burns with a sputtering light that fades out at
+// the end. Enemies are drawn to it like any other light.
+interface Flare {
+  position: Point;
+  target: Point | null; // null once landed
+  age: number; // seconds
+  seed: number; // keeps flares' flicker out of step
+  light: Light;
+}
+const flares: Flare[] = [];
+const FLARE_SPEED = 900; // world units per second
+const FLARE_RADIUS = 6;
+const FLARE_COLOR: Color = [1, 0.3, 0.15]; // scaled by the brightness slider
+const FLARE_FADE = 1; // seconds of fading out at the end of the burn
+let flareBrightness = 0; // set from the controls below
+let flareBurnTime = 0; // seconds, set from the controls below
+
+function throwFlare(): void {
+  const target = pointerLight.position;
+  if (target[0] === player.position[0] && target[1] === player.position[1]) return;
+  const position = player.position;
+  const light: Light = { ...sweptLight(playerLight.position, [0, 0, 0]), height: 30, falloffRate: 0.01 };
+  flares.push({ position, target, age: 0, seed: Math.random() * 100, light });
+}
+
+/** Fast, deep flicker, so flares sputter where the fixed lights only waver. */
+function sputter(seconds: number, seed: number): number {
+  const wobble =
+    (Math.sin(seconds * 17 + seed) + 0.7 * Math.sin(seconds * 31 + 2 * seed) + 0.5 * Math.sin(seconds * 53 + 3 * seed)) / 2.2;
+  return 1 + 0.4 * wobble;
+}
+
+function updateFlares(dt: number, seconds: number): void {
+  for (const flare of flares) {
+    flare.age += dt;
+    if (flare.target) {
+      const [x, y] = flare.position;
+      const dx = flare.target[0] - x;
+      const dy = flare.target[1] - y;
+      const remaining = Math.hypot(dx, dy);
+      const step = Math.min(FLARE_SPEED * dt, remaining);
+      const next: Point = remaining > 0 ? [x + (dx / remaining) * step, y + (dy / remaining) * step] : flare.target;
+      if (walls.some((w) => crosses(flare.position, next, w))) {
+        flare.target = null; // drops where it hit
+      } else {
+        flare.position = pushOutOfWalls(next, FLARE_RADIUS);
+        if (step === remaining) flare.target = null;
+      }
+      flare.light.position = [Math.round(flare.position[0]), Math.round(flare.position[1])];
+      flare.light.triangles = visibilityTriangles(flare.light.position, walls);
+    }
+    const fade = Math.min(1, (flareBurnTime - flare.age) / FLARE_FADE);
+    const k = flareBrightness * sputter(seconds, flare.seed) * Math.max(0, fade);
+    flare.light.color = [FLARE_COLOR[0] * k, FLARE_COLOR[1] * k, FLARE_COLOR[2] * k];
+  }
+  for (let i = flares.length - 1; i >= 0; i--) {
+    if (flares[i].age >= flareBurnTime) flares.splice(i, 1);
+  }
+}
+
+/** A flare's burning head, drawn flat so it glows whatever the lighting. */
+function flareDisc(flare: Flare): Disc {
+  const k = Math.min(1, Math.max(...flare.light.color));
+  return { position: flare.position, radius: FLARE_RADIUS, color: [1, 0.3 + 0.6 * k, 0.2 + 0.5 * k] };
+}
+
 // Flicker changes every frame, so render continuously rather than on input.
 let lastTime: DOMHighResTimeStamp | null = null;
 function draw(time: DOMHighResTimeStamp): void {
   const seconds = time / 1000;
   const dt = lastTime === null ? 0 : Math.min(seconds - lastTime / 1000, 0.1); // cap after a paused tab
   movePlayer(dt);
+  updateFlares(dt, seconds);
   lastTime = time;
   const flickering = staticLights.map((light, i): Light => {
     const k = flicker(seconds, i) * staticBrightness[i];
     return { ...light, color: [light.color[0] * k, light.color[1] * k, light.color[2] * k] };
   });
-  const lights = [...flickering, pointerLight, playerLight, playerGlow];
+  const lights = [...flickering, pointerLight, playerLight, playerGlow, ...flares.map((f) => f.light)];
   for (const enemy of enemies) moveEnemy(enemy, dt, lights);
   const pending = wallStart ? segment(wallStart, pointerLight.position) : null;
-  renderer.render(walls, lights, pending, [player, ...enemies.flatMap(enemyDiscs)]);
+  renderer.render(walls, lights, pending, [player, ...enemies.flatMap(enemyDiscs), ...flares.map(flareDisc)]);
   requestAnimationFrame(draw);
 }
 
@@ -344,6 +423,8 @@ slider("glow-brightness", (v) => {
 });
 slider("glow-height", (v) => (playerGlow.height = v));
 slider("glow-falloff", (v) => (playerGlow.falloffRate = v));
+slider("flare-brightness", (v) => (flareBrightness = v));
+slider("flare-burn-time", (v) => (flareBurnTime = v));
 slider("enemy-count", setEnemyCount);
 slider("enemy-avoid-range", (v) => (enemyAvoidRange = v));
 slider("enemy-avoid-strength", (v) => (enemyAvoidStrength = v));
