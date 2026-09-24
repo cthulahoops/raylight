@@ -78,7 +78,8 @@ function randomClearPoint(clearance: number, others: Disc[] = []): Point {
 
 // Enemies are lit by the scene so they hide in the dark: dark grey bodies
 // with red eyes. Each walks straight ahead, bouncing off walls, and steers
-// towards the brightest light shining on it. They bounce off each other too.
+// towards the brightest light shining on it while veering away from other
+// enemies ahead of it. If they touch anyway, they bounce off each other.
 interface Enemy {
   body: Disc;
   heading: number; // radians
@@ -97,9 +98,15 @@ function setEnemyCount(count: number): void {
 }
 const ENEMY_SPEED = 150; // world units per second
 const ENEMY_TURN_RATE = Math.PI; // radians per second
-let enemyLightThreshold = 0; // brightness that attracts the enemy, set from the controls below
+// Set from the controls below.
+let enemyLightThreshold = 0; // brightness that attracts an enemy
+let enemyAvoidRange = 0; // gap between enemies at which they start to veer apart
+let enemyAvoidStrength = 0; // weight of veering apart against the pull of a light
 
-/** Turn towards the brightest light above the threshold, then step forward. */
+/**
+ * Steer towards the brightest light above the threshold (or keep going
+ * straight) plus away from enemies ahead, then step forward.
+ */
 function moveEnemy(enemy: Enemy, dt: number, lights: Light[]): void {
   const { body } = enemy;
   const [x, y] = body.position;
@@ -109,8 +116,32 @@ function moveEnemy(enemy: Enemy, dt: number, lights: Light[]): void {
     const b = renderer.brightnessAt(light, body.position);
     if (b > best) [best, target] = [b, light];
   }
+  let hx = Math.cos(enemy.heading);
+  let hy = Math.sin(enemy.heading);
+  let [wantX, wantY] = [hx, hy];
   if (target) {
-    const want = Math.atan2(target.position[1] - y, target.position[0] - x);
+    const tx = target.position[0] - x;
+    const ty = target.position[1] - y;
+    const len = Math.hypot(tx, ty) || 1;
+    [wantX, wantY] = [tx / len, ty / len];
+  }
+  // Only enemies in front count, so it looks where it's going rather than
+  // being shoved from behind. Closer and more directly ahead pushes harder.
+  for (const other of enemies) {
+    if (other === enemy || enemyAvoidRange <= 0) continue;
+    const ox = other.body.position[0] - x;
+    const oy = other.body.position[1] - y;
+    const d = Math.hypot(ox, oy);
+    if (d === 0) continue;
+    const ahead = (hx * ox + hy * oy) / d;
+    const closeness = 1 - (d - body.radius - other.body.radius) / enemyAvoidRange;
+    if (ahead <= 0 || closeness <= 0) continue;
+    const push = (enemyAvoidStrength * ahead * Math.min(closeness, 1)) / d;
+    wantX -= ox * push;
+    wantY -= oy * push;
+  }
+  if (wantX !== 0 || wantY !== 0) {
+    const want = Math.atan2(wantY, wantX);
     const diff = Math.atan2(Math.sin(want - enemy.heading), Math.cos(want - enemy.heading)); // shortest way round
     const maxTurn = ENEMY_TURN_RATE * dt;
     enemy.heading += Math.max(-maxTurn, Math.min(maxTurn, diff));
@@ -119,8 +150,8 @@ function moveEnemy(enemy: Enemy, dt: number, lights: Light[]): void {
   // Bounce off the arena edge, walls and other enemies, but only when heading
   // into them, so an enemy can escape a wall drawn on top of it or separate
   // from another it overlaps.
-  let hx = Math.cos(enemy.heading);
-  let hy = Math.sin(enemy.heading);
+  hx = Math.cos(enemy.heading);
+  hy = Math.sin(enemy.heading);
   const next: Point = [x + hx * ENEMY_SPEED * dt, y + hy * ENEMY_SPEED * dt];
   const r = body.radius;
   const limit = 1000 - r;
@@ -314,6 +345,8 @@ slider("glow-brightness", (v) => {
 slider("glow-height", (v) => (playerGlow.height = v));
 slider("glow-falloff", (v) => (playerGlow.falloffRate = v));
 slider("enemy-count", setEnemyCount);
+slider("enemy-avoid-range", (v) => (enemyAvoidRange = v));
+slider("enemy-avoid-strength", (v) => (enemyAvoidStrength = v));
 slider("enemy-threshold", (v) => (enemyLightThreshold = v));
 staticLights.forEach((_, i) => slider(`fixed-light-${i + 1}`, (v) => (staticBrightness[i] = v)));
 
