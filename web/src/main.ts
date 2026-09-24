@@ -59,6 +59,7 @@ window.addEventListener("keydown", (e) => {
 });
 
 let flickerAmount = 0; // set from the controls below
+const staticBrightness = staticLights.map(() => 1); // per-light multipliers, set from the sliders
 
 /** Brightness multiplier around 1; incommensurate sines so the flicker never visibly repeats. */
 function flicker(seconds: number, seed: number): number {
@@ -72,7 +73,7 @@ function flicker(seconds: number, seed: number): number {
 function draw(time: DOMHighResTimeStamp): void {
   const seconds = time / 1000;
   const flickering = staticLights.map((light, i): Light => {
-    const k = flicker(seconds, i);
+    const k = flicker(seconds, i) * staticBrightness[i];
     return { ...light, color: [light.color[0] * k, light.color[1] * k, light.color[2] * k] };
   });
   const pending = wallStart ? segment(wallStart, pointerLight.position) : null;
@@ -99,6 +100,7 @@ function slider(id: string, set: (value: number) => void): void {
 slider("light-height", (v) => (renderer.lighting.lightHeight = v));
 slider("falloff-rate", (v) => (renderer.lighting.falloffRate = v));
 slider("flicker", (v) => (flickerAmount = v));
+staticLights.forEach((_, i) => slider(`fixed-light-${i + 1}`, (v) => (staticBrightness[i] = v)));
 
 // A colour picker can't exceed 1, so brightness comes from a separate intensity.
 function updatePointerColor(): void {
