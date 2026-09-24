@@ -21,7 +21,7 @@ const staticLights: Light[] = [
 ];
 const pointerLight = sweptLight([0, 0], [0, 0, 0]); // colour set from the controls below
 
-// Arrow keys drive the player, who carries a warm torch aimed at the pointer.
+// Arrow keys or WASD drive the player, who carries a warm torch aimed at the pointer.
 const player: Disc = { position: [0, -300], radius: 25, color: [1, 1, 1] };
 const playerLight: Light = {
   ...sweptLight(player.position, [1.2, 1.0, 0.7]),
@@ -198,24 +198,37 @@ canvas.addEventListener("click", (e) => {
   }
 });
 
-// Held keys are tracked so movement is per frame, not per key repeat.
+// Held keys are tracked so movement is per frame, not per key repeat. They
+// are physical key codes, so WASD stays in the same place on any layout.
 const PLAYER_SPEED = 500; // world units per second
-const ARROW_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
+const MOVE_KEYS: Record<string, Point> = {
+  ArrowUp: [0, 1],
+  ArrowDown: [0, -1],
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  KeyW: [0, 1],
+  KeyS: [0, -1],
+  KeyA: [-1, 0],
+  KeyD: [1, 0],
+};
 const heldKeys = new Set<string>();
 
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") wallStart = null;
-  if (ARROW_KEYS.has(e.key)) {
-    heldKeys.add(e.key);
+  if (e.code in MOVE_KEYS && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    heldKeys.add(e.code);
     e.preventDefault();
   }
 });
-window.addEventListener("keyup", (e) => heldKeys.delete(e.key));
+window.addEventListener("keyup", (e) => heldKeys.delete(e.code));
 window.addEventListener("blur", () => heldKeys.clear());
 
 function movePlayer(dt: number): void {
-  const dx = Number(heldKeys.has("ArrowRight")) - Number(heldKeys.has("ArrowLeft"));
-  const dy = Number(heldKeys.has("ArrowUp")) - Number(heldKeys.has("ArrowDown"));
+  let dx = 0;
+  let dy = 0;
+  for (const code of heldKeys) [dx, dy] = [dx + MOVE_KEYS[code][0], dy + MOVE_KEYS[code][1]];
+  // Holding W and Up together shouldn't skew a diagonal.
+  [dx, dy] = [Math.sign(dx), Math.sign(dy)];
   if (dx === 0 && dy === 0) return;
   const distance = PLAYER_SPEED * dt;
   // Walls are only lines, so move in steps short enough that the player
