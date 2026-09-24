@@ -1,5 +1,5 @@
 import { EXAMPLE_WALLS, type Point, type Segment, segment, splitCrossings, visibilityTriangles } from "./raylighting";
-import { type Color, type Light, Renderer } from "./renderer";
+import { type Color, type Disc, type Light, Renderer } from "./renderer";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
 const renderer = await Renderer.create(canvas);
@@ -21,9 +21,26 @@ const staticLights: Light[] = [
 ];
 const pointerLight = sweptLight([0, 0], [0, 0, 0]); // colour set from the controls below
 
+// Arrow keys drive the player, who carries a warm torch aimed at the pointer.
+const player: Disc = { position: [0, -300], radius: 25, color: [1, 1, 1] };
+const playerLight: Light = {
+  ...sweptLight(player.position, [1.2, 1.0, 0.7]),
+  cone: { direction: [0, 1], halfAngle: (15 * Math.PI) / 180 },
+};
+
+/** Point the torch at the pointer; keeps its last heading if the pointer is on the player. */
+function aimTorch(): void {
+  const dx = pointerLight.position[0] - player.position[0];
+  const dy = pointerLight.position[1] - player.position[1];
+  const len = Math.hypot(dx, dy);
+  if (len > 0) playerLight.cone!.direction = [dx / len, dy / len];
+}
+
 function updateWalls(): void {
   walls = splitCrossings(drawnWalls);
-  for (const light of [...staticLights, pointerLight]) light.triangles = visibilityTriangles(light.position, walls);
+  for (const light of [...staticLights, pointerLight, playerLight]) {
+    light.triangles = visibilityTriangles(light.position, walls);
+  }
 }
 
 let wallStart: Point | null = null; // set after the first click of a new wall
@@ -38,6 +55,7 @@ function toWorld(e: PointerEvent): Point {
 canvas.addEventListener("pointermove", (e) => {
   pointerLight.position = toWorld(e);
   pointerLight.triangles = visibilityTriangles(pointerLight.position, walls);
+  aimTorch();
 });
 
 // Click once to start a wall, again to finish it. Escape abandons it.
@@ -54,9 +72,35 @@ canvas.addEventListener("click", (e) => {
   }
 });
 
+// Held keys are tracked so movement is per frame, not per key repeat.
+const PLAYER_SPEED = 500; // world units per second
+const ARROW_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
+const heldKeys = new Set<string>();
+
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") wallStart = null;
+  if (ARROW_KEYS.has(e.key)) {
+    heldKeys.add(e.key);
+    e.preventDefault();
+  }
 });
+window.addEventListener("keyup", (e) => heldKeys.delete(e.key));
+window.addEventListener("blur", () => heldKeys.clear());
+
+function movePlayer(dt: number): void {
+  const dx = Number(heldKeys.has("ArrowRight")) - Number(heldKeys.has("ArrowLeft"));
+  const dy = Number(heldKeys.has("ArrowUp")) - Number(heldKeys.has("ArrowDown"));
+  if (dx === 0 && dy === 0) return;
+  const k = (PLAYER_SPEED * dt) / Math.hypot(dx, dy); // diagonal moves at the same speed
+  const limit = 1000 - player.radius;
+  const [x, y] = player.position;
+  player.position = [Math.max(-limit, Math.min(limit, x + dx * k)), Math.max(-limit, Math.min(limit, y + dy * k))];
+  // The sweep relies on integer coordinates for exact tie-breaking, so round
+  // the light's position; the disc itself keeps its fractional position.
+  playerLight.position = [Math.round(player.position[0]), Math.round(player.position[1])];
+  playerLight.triangles = visibilityTriangles(playerLight.position, walls);
+  aimTorch();
+}
 
 let flickerAmount = 0; // set from the controls below
 const staticBrightness = staticLights.map(() => 1); // per-light multipliers, set from the sliders
@@ -70,14 +114,17 @@ function flicker(seconds: number, seed: number): number {
 }
 
 // Flicker changes every frame, so render continuously rather than on input.
+let lastTime: DOMHighResTimeStamp | null = null;
 function draw(time: DOMHighResTimeStamp): void {
   const seconds = time / 1000;
+  movePlayer(lastTime === null ? 0 : Math.min(seconds - lastTime / 1000, 0.1)); // cap after a paused tab
+  lastTime = time;
   const flickering = staticLights.map((light, i): Light => {
     const k = flicker(seconds, i) * staticBrightness[i];
     return { ...light, color: [light.color[0] * k, light.color[1] * k, light.color[2] * k] };
   });
   const pending = wallStart ? segment(wallStart, pointerLight.position) : null;
-  renderer.render(walls, [...flickering, pointerLight], pending);
+  renderer.render(walls, [...flickering, pointerLight, playerLight], pending, [player]);
   requestAnimationFrame(draw);
 }
 

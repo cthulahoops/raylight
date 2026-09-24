@@ -4,12 +4,25 @@ import { type Point, type Segment } from "./raylighting";
 
 export type Color = readonly [number, number, number];
 
+/** Restricts a light to a wedge of directions, like a torch beam. */
+export interface Cone {
+  /** Unit vector the beam points along. */
+  direction: Point;
+  /** Angle from the centre line to the beam edge, in radians. */
+  halfAngle: number;
+}
+
 export interface Light {
   position: Point;
   color: Color;
   /** Visibility triangles from the sweep; the caller keeps them in step with position and walls. */
   triangles: Float32Array;
+  /** Omitted for an omnidirectional light. */
+  cone?: Cone;
 }
+
+/** Fraction of the cone's half-angle over which the beam edge fades. */
+const CONE_EDGE_SOFTNESS = 0.15;
 
 const AMBIENT: Color = [0.02, 0.02, 0.05];
 /** Walls are white, but a little below 1 so bright lights don't flatten them. */
@@ -43,17 +56,27 @@ uniform vec3 light_color;
 uniform vec3 ambient;
 uniform float falloff_rate;
 uniform bool wall;
+// Beam cone: cos of the half-angle where the beam is full, and where it has
+// faded to nothing. cone_outer <= -1 means omnidirectional.
+uniform vec2 cone_dir;
+uniform float cone_inner;
+uniform float cone_outer;
 out vec4 frag_color;
 void main() {
   vec2 uv = world_pos / tile_size;
   vec3 d = light_pos - vec3(world_pos, 0.0);
+  float beam = 1.0;
+  if (cone_outer > -1.0) {
+    float c = dot(normalize(-d.xy), cone_dir);
+    beam = smoothstep(cone_outer, cone_inner, c);
+  }
   vec3 base = wall ? vec3(${WALL_ALBEDO}) : texture(albedo, uv).rgb;
   vec3 n = wall
     ? vec3(dot(wall_normal, d.xy) < 0.0 ? -wall_normal : wall_normal, 0.0)
     : normalize(2.0 * texture(normal_map, uv).rgb - 1.0);
   float falloff = 1.0 / (1.0 + falloff_rate * length(d));
   float lambert = max(dot(normalize(d), n), 0.0);
-  frag_color = vec4(base * (ambient + falloff * lambert * light_color), 1.0);
+  frag_color = vec4(base * (ambient + beam * falloff * lambert * light_color), 1.0);
 }`;
 
 const FLAT_VERTEX_SHADER = `#version 300 es
@@ -131,6 +154,18 @@ export function wallQuads(walls: Segment[], thickness = 6): Float32Array {
   return Float32Array.from(verts);
 }
 
+/** A triangle fan around the centre, flattened into independent triangles. */
+export function circleFan(center: Point, radius: number, sides = 32): Float32Array {
+  const verts: number[] = [];
+  const [cx, cy] = center;
+  for (let i = 0; i < sides; i++) {
+    const a0 = (i / sides) * 2 * Math.PI;
+    const a1 = ((i + 1) / sides) * 2 * Math.PI;
+    verts.push(cx, cy, cx + radius * Math.cos(a0), cy + radius * Math.sin(a0), cx + radius * Math.cos(a1), cy + radius * Math.sin(a1));
+  }
+  return Float32Array.from(verts);
+}
+
 /** Unit perpendicular of each wall, repeated for the six vertices of its quad. */
 function wallNormals(walls: Segment[]): Float32Array {
   const normals: number[] = [];
@@ -146,6 +181,13 @@ function wallNormals(walls: Segment[]): Float32Array {
 const WALL = 1;
 const SEEN = 2;
 
+/** A flat-coloured disc drawn over the lit scene. */
+export interface Disc {
+  position: Point;
+  radius: number;
+  color: Color;
+}
+
 export interface LightingParams {
   /** Height of lights above the floor, in world units. */
   lightHeight: number;
@@ -159,7 +201,10 @@ export class Renderer {
   private readonly gl: WebGL2RenderingContext;
   private readonly lit: WebGLProgram;
   private readonly flat: WebGLProgram;
-  private readonly litLocs: Record<"scale" | "lightPos" | "lightColor" | "ambient" | "falloffRate" | "wall", WebGLUniformLocation>;
+  private readonly litLocs: Record<
+    "scale" | "lightPos" | "lightColor" | "ambient" | "falloffRate" | "wall" | "coneDir" | "coneInner" | "coneOuter",
+    WebGLUniformLocation
+  >;
   private readonly flatLocs: Record<"scale" | "color", WebGLUniformLocation>;
   private readonly buffer: WebGLBuffer;
   private readonly normalBuffer: WebGLBuffer;
@@ -189,6 +234,9 @@ export class Renderer {
       ambient: litLoc("ambient"),
       falloffRate: litLoc("falloff_rate"),
       wall: litLoc("wall"),
+      coneDir: litLoc("cone_dir"),
+      coneInner: litLoc("cone_inner"),
+      coneOuter: litLoc("cone_outer"),
     };
     gl.useProgram(this.lit);
     gl.uniform1f(litLoc("tile_size"), TILE_SIZE);
@@ -239,7 +287,7 @@ export class Renderer {
     this.gl.disableVertexAttribArray(NORMAL_LOC);
   }
 
-  render(walls: Segment[], lights: Light[], pending: Segment | null = null): void {
+  render(walls: Segment[], lights: Light[], pending: Segment | null = null, discs: Disc[] = []): void {
     const gl = this.gl;
     const scale = 1 / this.worldExtent;
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -276,9 +324,16 @@ export class Renderer {
     gl.blendFunc(gl.ONE, gl.ONE);
     gl.uniform3f(this.litLocs.ambient, 0, 0, 0);
     gl.stencilMask(SEEN);
-    for (const { position, color, triangles } of lights) {
+    for (const { position, color, triangles, cone } of lights) {
       gl.uniform3f(this.litLocs.lightPos, position[0], position[1], this.lighting.lightHeight);
       gl.uniform3f(this.litLocs.lightColor, ...color);
+      if (cone) {
+        gl.uniform2f(this.litLocs.coneDir, cone.direction[0], cone.direction[1]);
+        gl.uniform1f(this.litLocs.coneInner, Math.cos(cone.halfAngle * (1 - CONE_EDGE_SOFTNESS)));
+        gl.uniform1f(this.litLocs.coneOuter, Math.cos(cone.halfAngle));
+      } else {
+        gl.uniform1f(this.litLocs.coneOuter, -1);
+      }
       gl.uniform1i(this.litLocs.wall, 0);
       gl.stencilFunc(gl.EQUAL, SEEN, WALL);
       gl.stencilOp(gl.REPLACE, gl.KEEP, gl.KEEP);
@@ -297,6 +352,10 @@ export class Renderer {
     if (pending) {
       gl.uniform3f(this.flatLocs.color, 0.5, 0.5, 0.5);
       this.draw(wallQuads([pending]));
+    }
+    for (const { position, radius, color } of discs) {
+      gl.uniform3f(this.flatLocs.color, ...color);
+      this.draw(circleFan(position, radius));
     }
   }
 }
