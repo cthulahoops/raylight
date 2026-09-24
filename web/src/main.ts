@@ -41,6 +41,25 @@ function distanceToSegment(p: Point, s: Segment): number {
   return Math.hypot(p[0] - cx, p[1] - cy);
 }
 
+/**
+ * Moves p the least distance needed to be `clearance` from every wall, so a
+ * disc pressed into a wall slides along it. Repeated to settle into corners.
+ */
+function pushOutOfWalls(p: Point, clearance: number): Point {
+  let [x, y] = p;
+  for (let pass = 0; pass < 3; pass++) {
+    for (const wall of walls) {
+      const [cx, cy] = closestPoint([x, y], wall);
+      const d = Math.hypot(x - cx, y - cy);
+      if (d > 0 && d < clearance) {
+        x = cx + ((x - cx) * clearance) / d;
+        y = cy + ((y - cy) * clearance) / d;
+      }
+    }
+  }
+  return [x, y];
+}
+
 /** A random point at least `clearance` from every wall, the arena edge and the player. */
 function randomClearPoint(clearance: number): Point {
   const limit = 1000 - clearance;
@@ -187,10 +206,16 @@ function movePlayer(dt: number): void {
   const dx = Number(heldKeys.has("ArrowRight")) - Number(heldKeys.has("ArrowLeft"));
   const dy = Number(heldKeys.has("ArrowUp")) - Number(heldKeys.has("ArrowDown"));
   if (dx === 0 && dy === 0) return;
-  const k = (PLAYER_SPEED * dt) / Math.hypot(dx, dy); // diagonal moves at the same speed
+  const distance = PLAYER_SPEED * dt;
+  // Walls are only lines, so move in steps short enough that the player
+  // can't pass through one between checks.
+  const steps = Math.ceil(distance / (player.radius / 2));
+  const k = distance / steps / Math.hypot(dx, dy); // diagonal moves at the same speed
   const limit = 1000 - player.radius;
-  const [x, y] = player.position;
-  player.position = [Math.max(-limit, Math.min(limit, x + dx * k)), Math.max(-limit, Math.min(limit, y + dy * k))];
+  for (let i = 0; i < steps; i++) {
+    const [x, y] = pushOutOfWalls([player.position[0] + dx * k, player.position[1] + dy * k], player.radius);
+    player.position = [Math.max(-limit, Math.min(limit, x)), Math.max(-limit, Math.min(limit, y))];
+  }
   // The sweep relies on integer coordinates for exact tie-breaking, so round
   // the light's position; the disc itself keeps its fractional position.
   playerLight.position = [Math.round(player.position[0]), Math.round(player.position[1])];
