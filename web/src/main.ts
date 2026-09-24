@@ -60,29 +60,32 @@ function pushOutOfWalls(p: Point, clearance: number): Point {
   return [x, y];
 }
 
-/** A random point at least `clearance` from every wall, the arena edge and the player. */
-function randomClearPoint(clearance: number): Point {
+/** A random point at least `clearance` from every wall, the arena edge, the player and the other discs. */
+function randomClearPoint(clearance: number, others: Disc[] = []): Point {
   const limit = 1000 - clearance;
   for (;;) {
     const p: Point = [(Math.random() * 2 - 1) * limit, (Math.random() * 2 - 1) * limit];
     const nearPlayer = Math.hypot(p[0] - player.position[0], p[1] - player.position[1]) < 4 * player.radius;
-    if (!nearPlayer && walls.every((w) => distanceToSegment(p, w) >= clearance)) return p;
+    const nearOther = others.some((d) => Math.hypot(p[0] - d.position[0], p[1] - d.position[1]) < clearance + d.radius);
+    if (!nearPlayer && !nearOther && walls.every((w) => distanceToSegment(p, w) >= clearance)) return p;
   }
 }
 
 // Enemies are lit by the scene so they hide in the dark: dark grey bodies
 // with red eyes. Each walks straight ahead, bouncing off walls, and steers
-// towards the brightest light shining on it. They pass through each other.
+// towards the brightest light shining on it. They bounce off each other too.
 interface Enemy {
   body: Disc;
   heading: number; // radians
 }
 
 const ENEMY_COUNT = 6;
-const enemies: Enemy[] = Array.from({ length: ENEMY_COUNT }, () => ({
-  body: { position: randomClearPoint(2 * player.radius), radius: player.radius, color: [0.4, 0.4, 0.4], lit: true },
-  heading: Math.random() * 2 * Math.PI,
-}));
+const enemies: Enemy[] = [];
+for (let i = 0; i < ENEMY_COUNT; i++) {
+  const position = randomClearPoint(2 * player.radius, enemies.map((e) => e.body));
+  const body: Disc = { position, radius: player.radius, color: [0.4, 0.4, 0.4], lit: true };
+  enemies.push({ body, heading: Math.random() * 2 * Math.PI });
+}
 const ENEMY_SPEED = 150; // world units per second
 const ENEMY_TURN_RATE = Math.PI; // radians per second
 let enemyLightThreshold = 0; // brightness that attracts the enemy, set from the controls below
@@ -104,8 +107,9 @@ function moveEnemy(enemy: Enemy, dt: number, lights: Light[]): void {
     enemy.heading += Math.max(-maxTurn, Math.min(maxTurn, diff));
   }
 
-  // Bounce off the arena edge and walls, but only when heading into them, so
-  // the enemy can escape a wall drawn on top of it.
+  // Bounce off the arena edge, walls and other enemies, but only when heading
+  // into them, so an enemy can escape a wall drawn on top of it or separate
+  // from another it overlaps.
   let hx = Math.cos(enemy.heading);
   let hy = Math.sin(enemy.heading);
   const next: Point = [x + hx * ENEMY_SPEED * dt, y + hy * ENEMY_SPEED * dt];
@@ -114,17 +118,20 @@ function moveEnemy(enemy: Enemy, dt: number, lights: Light[]): void {
   let blocked = false;
   if (Math.abs(next[0]) > limit && hx * next[0] > 0) [hx, blocked] = [-hx, true];
   if (Math.abs(next[1]) > limit && hy * next[1] > 0) [hy, blocked] = [-hy, true];
-  for (const wall of walls) {
-    const [cx, cy] = closestPoint(next, wall);
+  const bounce = ([cx, cy]: Point, clearance: number) => {
     const nx = next[0] - cx;
     const ny = next[1] - cy;
     const dot = hx * nx + hy * ny;
-    if (Math.hypot(nx, ny) < r && dot < 0) {
-      const k = (2 * dot) / (nx * nx + ny * ny); // reflect the heading off the wall
+    if (Math.hypot(nx, ny) < clearance && dot < 0) {
+      const k = (2 * dot) / (nx * nx + ny * ny); // reflect the heading off the obstacle
       hx -= k * nx;
       hy -= k * ny;
       blocked = true;
     }
+  };
+  for (const wall of walls) bounce(closestPoint(next, wall), r);
+  for (const other of enemies) {
+    if (other !== enemy) bounce(other.body.position, r + other.body.radius);
   }
   enemy.heading = Math.atan2(hy, hx);
   if (!blocked) body.position = next;
