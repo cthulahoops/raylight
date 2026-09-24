@@ -154,6 +154,23 @@ async function loadTexture(gl: WebGL2RenderingContext, url: string): Promise<Web
   return texture;
 }
 
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+function insideTriangles([px, py]: Point, triangles: Float32Array): boolean {
+  const edge = (ax: number, ay: number, bx: number, by: number) => (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+  for (let i = 0; i < triangles.length; i += 6) {
+    const [ax, ay, bx, by, cx, cy] = triangles.subarray(i, i + 6);
+    const e1 = edge(ax, ay, bx, by);
+    const e2 = edge(bx, by, cx, cy);
+    const e3 = edge(cx, cy, ax, ay);
+    if ((e1 >= 0 && e2 >= 0 && e3 >= 0) || (e1 <= 0 && e2 <= 0 && e3 <= 0)) return true;
+  }
+  return false;
+}
+
 /** Two triangles per wall, thickened perpendicular to its direction. */
 export function wallQuads(walls: Segment[], thickness = 6): Float32Array {
   const verts: number[] = [];
@@ -313,6 +330,27 @@ export class Renderer {
    * LESS to record the front-most disc at each pixel; light passes draw with
    * EQUAL so only that disc is lit (and clears SEEN), not those behind it.
    */
+  /**
+   * How brightly a light shows on a white, upward-facing point of the floor,
+   * following the shader; 0 where the light can't see the point.
+   */
+  brightnessAt({ position, color, triangles, cone }: Light, point: Point): number {
+    if (!insideTriangles(point, triangles)) return 0;
+    const dx = point[0] - position[0];
+    const dy = point[1] - position[1];
+    const h = this.lighting.lightHeight;
+    const distance = Math.hypot(dx, dy, h);
+    let beam = 1;
+    if (cone) {
+      const flat = Math.hypot(dx, dy);
+      const c = flat > 0 ? (dx * cone.direction[0] + dy * cone.direction[1]) / flat : 1;
+      beam = smoothstep(Math.cos(cone.halfAngle), Math.cos(cone.halfAngle * (1 - CONE_EDGE_SOFTNESS)), c);
+    }
+    const falloff = 1 / (1 + this.lighting.falloffRate * distance);
+    const lambert = h / distance;
+    return Math.max(...color) * beam * falloff * lambert;
+  }
+
   private drawLitDiscs(discs: Disc[], depthFunc: GLenum): void {
     const gl = this.gl;
     gl.enable(gl.DEPTH_TEST);

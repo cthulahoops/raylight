@@ -28,12 +28,17 @@ const playerLight: Light = {
   cone: { direction: [0, 1], halfAngle: (15 * Math.PI) / 180 },
 };
 
-/** Distance from p to the nearest point of the segment. */
-function distanceToSegment([px, py]: Point, { start: [x1, y1], end: [x2, y2] }: Segment): number {
+/** The point of the segment nearest to p. */
+function closestPoint([px, py]: Point, { start: [x1, y1], end: [x2, y2] }: Segment): Point {
   const dx = x2 - x1;
   const dy = y2 - y1;
   const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy || 1)));
-  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+  return [x1 + t * dx, y1 + t * dy];
+}
+
+function distanceToSegment(p: Point, s: Segment): number {
+  const [cx, cy] = closestPoint(p, s);
+  return Math.hypot(p[0] - cx, p[1] - cy);
 }
 
 /** A random point at least `clearance` from every wall, the arena edge and the player. */
@@ -46,23 +51,69 @@ function randomClearPoint(clearance: number): Point {
   }
 }
 
-// A static enemy, lit by the scene so it hides in the dark: a dark grey body whose red eyes follow the player.
+// The enemy is lit by the scene so it hides in the dark: a dark grey body
+// with red eyes. It walks straight ahead, bouncing off walls, and steers
+// towards the brightest light shining on it.
 const enemy: Disc = {
   position: randomClearPoint(2 * player.radius),
   radius: player.radius,
   color: [0.4, 0.4, 0.4],
   lit: true,
 };
+let enemyHeading = Math.random() * 2 * Math.PI; // radians
+const ENEMY_SPEED = 150; // world units per second
+const ENEMY_TURN_RATE = Math.PI; // radians per second
+let enemyLightThreshold = 0; // brightness that attracts the enemy, set from the controls below
+
+/** Turn towards the brightest light above the threshold, then step forward. */
+function moveEnemy(dt: number, lights: Light[]): void {
+  const [x, y] = enemy.position;
+  let target: Light | null = null;
+  let best = enemyLightThreshold;
+  for (const light of lights) {
+    const b = renderer.brightnessAt(light, enemy.position);
+    if (b > best) [best, target] = [b, light];
+  }
+  if (target) {
+    const want = Math.atan2(target.position[1] - y, target.position[0] - x);
+    const diff = Math.atan2(Math.sin(want - enemyHeading), Math.cos(want - enemyHeading)); // shortest way round
+    const maxTurn = ENEMY_TURN_RATE * dt;
+    enemyHeading += Math.max(-maxTurn, Math.min(maxTurn, diff));
+  }
+
+  // Bounce off the arena edge and walls, but only when heading into them, so
+  // the enemy can escape a wall drawn on top of it.
+  let hx = Math.cos(enemyHeading);
+  let hy = Math.sin(enemyHeading);
+  const next: Point = [x + hx * ENEMY_SPEED * dt, y + hy * ENEMY_SPEED * dt];
+  const r = enemy.radius;
+  const limit = 1000 - r;
+  let blocked = false;
+  if (Math.abs(next[0]) > limit && hx * next[0] > 0) [hx, blocked] = [-hx, true];
+  if (Math.abs(next[1]) > limit && hy * next[1] > 0) [hy, blocked] = [-hy, true];
+  for (const wall of walls) {
+    const [cx, cy] = closestPoint(next, wall);
+    const nx = next[0] - cx;
+    const ny = next[1] - cy;
+    const dot = hx * nx + hy * ny;
+    if (Math.hypot(nx, ny) < r && dot < 0) {
+      const k = (2 * dot) / (nx * nx + ny * ny); // reflect the heading off the wall
+      hx -= k * nx;
+      hy -= k * ny;
+      blocked = true;
+    }
+  }
+  enemyHeading = Math.atan2(hy, hx);
+  if (!blocked) enemy.position = next;
+}
+
 // Albedo above 1 so even dim light pushes the eyes to full red.
 const EYE_COLOR: Color = [3, 0.2, 0.2];
 
-/** The enemy's body plus two eyes set forward of its centre, facing the player. */
+/** The enemy's body plus two eyes set forward of its centre, facing its heading. */
 function enemyDiscs(): Disc[] {
   const [ex, ey] = enemy.position;
-  const dx = player.position[0] - ex;
-  const dy = player.position[1] - ey;
-  const len = Math.hypot(dx, dy) || 1;
-  const [fx, fy] = [dx / len, dy / len];
+  const [fx, fy] = [Math.cos(enemyHeading), Math.sin(enemyHeading)];
   const r = enemy.radius;
   const eye = (side: number): Disc => ({
     position: [ex + fx * 0.45 * r - fy * side * 0.4 * r, ey + fy * 0.45 * r + fx * side * 0.4 * r],
@@ -162,14 +213,17 @@ function flicker(seconds: number, seed: number): number {
 let lastTime: DOMHighResTimeStamp | null = null;
 function draw(time: DOMHighResTimeStamp): void {
   const seconds = time / 1000;
-  movePlayer(lastTime === null ? 0 : Math.min(seconds - lastTime / 1000, 0.1)); // cap after a paused tab
+  const dt = lastTime === null ? 0 : Math.min(seconds - lastTime / 1000, 0.1); // cap after a paused tab
+  movePlayer(dt);
   lastTime = time;
   const flickering = staticLights.map((light, i): Light => {
     const k = flicker(seconds, i) * staticBrightness[i];
     return { ...light, color: [light.color[0] * k, light.color[1] * k, light.color[2] * k] };
   });
+  const lights = [...flickering, pointerLight, playerLight];
+  moveEnemy(dt, lights);
   const pending = wallStart ? segment(wallStart, pointerLight.position) : null;
-  renderer.render(walls, [...flickering, pointerLight, playerLight], pending, [player, ...enemyDiscs()]);
+  renderer.render(walls, lights, pending, [player, ...enemyDiscs()]);
   requestAnimationFrame(draw);
 }
 
@@ -192,6 +246,7 @@ function slider(id: string, set: (value: number) => void): void {
 slider("light-height", (v) => (renderer.lighting.lightHeight = v));
 slider("falloff-rate", (v) => (renderer.lighting.falloffRate = v));
 slider("flicker", (v) => (flickerAmount = v));
+slider("enemy-threshold", (v) => (enemyLightThreshold = v));
 staticLights.forEach((_, i) => slider(`fixed-light-${i + 1}`, (v) => (staticBrightness[i] = v)));
 
 // A colour picker can't exceed 1, so brightness comes from a separate intensity.
