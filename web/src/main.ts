@@ -84,12 +84,16 @@ interface Enemy {
   heading: number; // radians
 }
 
-const ENEMY_COUNT = 6;
-const enemies: Enemy[] = [];
-for (let i = 0; i < ENEMY_COUNT; i++) {
-  const position = randomClearPoint(2 * player.radius, enemies.map((e) => e.body));
-  const body: Disc = { position, radius: player.radius, color: [0.4, 0.4, 0.4], lit: true };
-  enemies.push({ body, heading: Math.random() * 2 * Math.PI });
+const enemies: Enemy[] = []; // filled from the controls below
+
+/** Adds or removes enemies to reach `count`; new ones spawn clear of walls, the player and each other. */
+function setEnemyCount(count: number): void {
+  enemies.length = Math.min(enemies.length, count);
+  while (enemies.length < count) {
+    const position = randomClearPoint(2 * player.radius, enemies.map((e) => e.body));
+    const body: Disc = { position, radius: player.radius, color: [0.4, 0.4, 0.4], lit: true };
+    enemies.push({ body, heading: Math.random() * 2 * Math.PI });
+  }
 }
 const ENEMY_SPEED = 150; // world units per second
 const ENEMY_TURN_RATE = Math.PI; // radians per second
@@ -309,6 +313,7 @@ slider("glow-brightness", (v) => {
 });
 slider("glow-height", (v) => (playerGlow.height = v));
 slider("glow-falloff", (v) => (playerGlow.falloffRate = v));
+slider("enemy-count", setEnemyCount);
 slider("enemy-threshold", (v) => (enemyLightThreshold = v));
 staticLights.forEach((_, i) => slider(`fixed-light-${i + 1}`, (v) => (staticBrightness[i] = v)));
 
