@@ -70,42 +70,46 @@ function randomClearPoint(clearance: number): Point {
   }
 }
 
-// The enemy is lit by the scene so it hides in the dark: a dark grey body
-// with red eyes. It walks straight ahead, bouncing off walls, and steers
-// towards the brightest light shining on it.
-const enemy: Disc = {
-  position: randomClearPoint(2 * player.radius),
-  radius: player.radius,
-  color: [0.4, 0.4, 0.4],
-  lit: true,
-};
-let enemyHeading = Math.random() * 2 * Math.PI; // radians
+// Enemies are lit by the scene so they hide in the dark: dark grey bodies
+// with red eyes. Each walks straight ahead, bouncing off walls, and steers
+// towards the brightest light shining on it. They pass through each other.
+interface Enemy {
+  body: Disc;
+  heading: number; // radians
+}
+
+const ENEMY_COUNT = 6;
+const enemies: Enemy[] = Array.from({ length: ENEMY_COUNT }, () => ({
+  body: { position: randomClearPoint(2 * player.radius), radius: player.radius, color: [0.4, 0.4, 0.4], lit: true },
+  heading: Math.random() * 2 * Math.PI,
+}));
 const ENEMY_SPEED = 150; // world units per second
 const ENEMY_TURN_RATE = Math.PI; // radians per second
 let enemyLightThreshold = 0; // brightness that attracts the enemy, set from the controls below
 
 /** Turn towards the brightest light above the threshold, then step forward. */
-function moveEnemy(dt: number, lights: Light[]): void {
-  const [x, y] = enemy.position;
+function moveEnemy(enemy: Enemy, dt: number, lights: Light[]): void {
+  const { body } = enemy;
+  const [x, y] = body.position;
   let target: Light | null = null;
   let best = enemyLightThreshold;
   for (const light of lights) {
-    const b = renderer.brightnessAt(light, enemy.position);
+    const b = renderer.brightnessAt(light, body.position);
     if (b > best) [best, target] = [b, light];
   }
   if (target) {
     const want = Math.atan2(target.position[1] - y, target.position[0] - x);
-    const diff = Math.atan2(Math.sin(want - enemyHeading), Math.cos(want - enemyHeading)); // shortest way round
+    const diff = Math.atan2(Math.sin(want - enemy.heading), Math.cos(want - enemy.heading)); // shortest way round
     const maxTurn = ENEMY_TURN_RATE * dt;
-    enemyHeading += Math.max(-maxTurn, Math.min(maxTurn, diff));
+    enemy.heading += Math.max(-maxTurn, Math.min(maxTurn, diff));
   }
 
   // Bounce off the arena edge and walls, but only when heading into them, so
   // the enemy can escape a wall drawn on top of it.
-  let hx = Math.cos(enemyHeading);
-  let hy = Math.sin(enemyHeading);
+  let hx = Math.cos(enemy.heading);
+  let hy = Math.sin(enemy.heading);
   const next: Point = [x + hx * ENEMY_SPEED * dt, y + hy * ENEMY_SPEED * dt];
-  const r = enemy.radius;
+  const r = body.radius;
   const limit = 1000 - r;
   let blocked = false;
   if (Math.abs(next[0]) > limit && hx * next[0] > 0) [hx, blocked] = [-hx, true];
@@ -122,25 +126,25 @@ function moveEnemy(dt: number, lights: Light[]): void {
       blocked = true;
     }
   }
-  enemyHeading = Math.atan2(hy, hx);
-  if (!blocked) enemy.position = next;
+  enemy.heading = Math.atan2(hy, hx);
+  if (!blocked) body.position = next;
 }
 
 // Albedo above 1 so even dim light pushes the eyes to full red.
 const EYE_COLOR: Color = [3, 0.2, 0.2];
 
 /** The enemy's body plus two eyes set forward of its centre, facing its heading. */
-function enemyDiscs(): Disc[] {
-  const [ex, ey] = enemy.position;
-  const [fx, fy] = [Math.cos(enemyHeading), Math.sin(enemyHeading)];
-  const r = enemy.radius;
+function enemyDiscs({ body, heading }: Enemy): Disc[] {
+  const [ex, ey] = body.position;
+  const [fx, fy] = [Math.cos(heading), Math.sin(heading)];
+  const r = body.radius;
   const eye = (side: number): Disc => ({
     position: [ex + fx * 0.45 * r - fy * side * 0.4 * r, ey + fy * 0.45 * r + fx * side * 0.4 * r],
     radius: 0.2 * r,
     color: EYE_COLOR,
     lit: true,
   });
-  return [enemy, eye(1), eye(-1)];
+  return [body, eye(1), eye(-1)];
 }
 
 /** Point the torch at the pointer; keeps its last heading if the pointer is on the player. */
@@ -246,9 +250,9 @@ function draw(time: DOMHighResTimeStamp): void {
     return { ...light, color: [light.color[0] * k, light.color[1] * k, light.color[2] * k] };
   });
   const lights = [...flickering, pointerLight, playerLight];
-  moveEnemy(dt, lights);
+  for (const enemy of enemies) moveEnemy(enemy, dt, lights);
   const pending = wallStart ? segment(wallStart, pointerLight.position) : null;
-  renderer.render(walls, lights, pending, [player, ...enemyDiscs()]);
+  renderer.render(walls, lights, pending, [player, ...enemies.flatMap(enemyDiscs)]);
   requestAnimationFrame(draw);
 }
 
