@@ -28,20 +28,26 @@ const AMBIENT: Color = [0.02, 0.02, 0.05];
 /** Walls are white, but a little below 1 so bright lights don't flatten them. */
 const WALL_ALBEDO = 0.8;
 
+const SURFACE_FLOOR = 0;
+const SURFACE_WALL = 1;
+const SURFACE_DISC = 2;
+
 // Floor lighting follows the Haskell scene shader: each light sits above the
 // plane, falls off with distance and shades the normal-mapped texture. Walls
 // use the same lighting on a plain white vertical face, turned towards the
-// light; only the side the light can see is ever drawn lit.
+// light; only the side the light can see is ever drawn lit. Lit discs are
+// shaded as domes rising out of the floor.
 const LIT_VERTEX_SHADER = `#version 300 es
 in vec2 in_pos;
 in vec2 in_normal;
 uniform float scale;
+uniform float depth;
 out vec2 world_pos;
 flat out vec2 wall_normal;
 void main() {
   world_pos = in_pos;
   wall_normal = in_normal;
-  gl_Position = vec4(in_pos * scale, 0.0, 1.0);
+  gl_Position = vec4(in_pos * scale, depth, 1.0);
 }`;
 
 const LIT_FRAGMENT_SHADER = `#version 300 es
@@ -55,7 +61,9 @@ uniform vec3 light_pos;
 uniform vec3 light_color;
 uniform vec3 ambient;
 uniform float falloff_rate;
-uniform bool wall;
+uniform int surface;
+uniform vec3 disc; // centre and radius of a lit disc
+uniform vec3 disc_albedo;
 // Beam cone: cos of the half-angle where the beam is full, and where it has
 // faded to nothing. cone_outer <= -1 means omnidirectional.
 uniform vec2 cone_dir;
@@ -70,10 +78,19 @@ void main() {
     float c = dot(normalize(-d.xy), cone_dir);
     beam = smoothstep(cone_outer, cone_inner, c);
   }
-  vec3 base = wall ? vec3(${WALL_ALBEDO}) : texture(albedo, uv).rgb;
-  vec3 n = wall
-    ? vec3(dot(wall_normal, d.xy) < 0.0 ? -wall_normal : wall_normal, 0.0)
-    : normalize(2.0 * texture(normal_map, uv).rgb - 1.0);
+  vec3 base;
+  vec3 n;
+  if (surface == ${SURFACE_WALL}) {
+    base = vec3(${WALL_ALBEDO});
+    n = vec3(dot(wall_normal, d.xy) < 0.0 ? -wall_normal : wall_normal, 0.0);
+  } else if (surface == ${SURFACE_DISC}) {
+    vec2 o = (world_pos - disc.xy) / disc.z;
+    base = disc_albedo;
+    n = vec3(o, sqrt(max(0.0, 1.0 - dot(o, o))));
+  } else {
+    base = texture(albedo, uv).rgb;
+    n = normalize(2.0 * texture(normal_map, uv).rgb - 1.0);
+  }
   float falloff = 1.0 / (1.0 + falloff_rate * length(d));
   float lambert = max(dot(normalize(d), n), 0.0);
   frag_color = vec4(base * (ambient + beam * falloff * lambert * light_color), 1.0);
@@ -176,16 +193,17 @@ function wallNormals(walls: Segment[]): Float32Array {
   return Float32Array.from(normals);
 }
 
-// Stencil bits: WALL marks wall pixels for the whole frame; SEEN marks the
-// wall pixels inside the current light's visibility triangles.
+// Stencil bits: WALL marks wall and lit disc pixels for the whole frame; SEEN
+// marks those pixels inside the current light's visibility triangles.
 const WALL = 1;
 const SEEN = 2;
 
-/** A flat-coloured disc drawn over the lit scene. */
 export interface Disc {
   position: Point;
   radius: number;
   color: Color;
+  /** Shade the disc with the scene's lights, using `color` as its albedo; otherwise draw it flat on top. */
+  lit?: boolean;
 }
 
 export interface LightingParams {
@@ -202,7 +220,7 @@ export class Renderer {
   private readonly lit: WebGLProgram;
   private readonly flat: WebGLProgram;
   private readonly litLocs: Record<
-    "scale" | "lightPos" | "lightColor" | "ambient" | "falloffRate" | "wall" | "coneDir" | "coneInner" | "coneOuter",
+    "scale" | "lightPos" | "lightColor" | "ambient" | "falloffRate" | "depth" | "surface" | "disc" | "discAlbedo" | "coneDir" | "coneInner" | "coneOuter",
     WebGLUniformLocation
   >;
   private readonly flatLocs: Record<"scale" | "color", WebGLUniformLocation>;
@@ -233,7 +251,10 @@ export class Renderer {
       lightColor: litLoc("light_color"),
       ambient: litLoc("ambient"),
       falloffRate: litLoc("falloff_rate"),
-      wall: litLoc("wall"),
+      depth: litLoc("depth"),
+      surface: litLoc("surface"),
+      disc: litLoc("disc"),
+      discAlbedo: litLoc("disc_albedo"),
       coneDir: litLoc("cone_dir"),
       coneInner: litLoc("cone_inner"),
       coneOuter: litLoc("cone_outer"),
@@ -264,7 +285,7 @@ export class Renderer {
   }
 
   static async create(canvas: HTMLCanvasElement, worldExtent = 1000): Promise<Renderer> {
-    const gl = canvas.getContext("webgl2", { antialias: false, stencil: true });
+    const gl = canvas.getContext("webgl2", { antialias: false, stencil: true, depth: true });
     if (!gl) throw new Error("WebGL2 is not available");
     const base = import.meta.env.BASE_URL;
     const [albedo, normalMap] = await Promise.all([
@@ -287,39 +308,62 @@ export class Renderer {
     this.gl.disableVertexAttribArray(NORMAL_LOC);
   }
 
+  /**
+   * Later discs sit in front of earlier ones. The ambient pass draws with
+   * LESS to record the front-most disc at each pixel; light passes draw with
+   * EQUAL so only that disc is lit (and clears SEEN), not those behind it.
+   */
+  private drawLitDiscs(discs: Disc[], depthFunc: GLenum): void {
+    const gl = this.gl;
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(depthFunc);
+    gl.uniform1i(this.litLocs.surface, SURFACE_DISC);
+    discs.forEach(({ position, radius, color }, i) => {
+      gl.uniform1f(this.litLocs.depth, -(i + 1) / (discs.length + 1));
+      gl.uniform3f(this.litLocs.disc, position[0], position[1], radius);
+      gl.uniform3f(this.litLocs.discAlbedo, ...color);
+      this.draw(circleFan(position, radius));
+    });
+    gl.uniform1f(this.litLocs.depth, 0);
+    gl.disable(gl.DEPTH_TEST);
+  }
+
   render(walls: Segment[], lights: Light[], pending: Segment | null = null, discs: Disc[] = []): void {
     const gl = this.gl;
     const scale = 1 / this.worldExtent;
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.clearColor(0, 0, 0, 1);
     gl.clearStencil(0);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     const wallVerts = wallQuads(walls);
+    const litDiscs = discs.filter((d) => d.lit);
     // Wall normals don't change between light passes, so upload them once.
     // Only the wall draws enable the attribute; the floor ignores it.
     gl.bindBuffer(gl.ARRAY_BUFFER, this.normalBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, wallNormals(walls), gl.STREAM_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
 
-    // Ambient pass covers the whole floor, then the walls over it, marking
-    // their pixels so the floor lighting below leaves them alone.
+    // Ambient pass covers the whole floor, then the walls and lit discs over
+    // it, marking their pixels so the floor lighting below leaves them alone.
     gl.useProgram(this.lit);
     gl.uniform1f(this.litLocs.scale, scale);
     gl.uniform1f(this.litLocs.falloffRate, this.lighting.falloffRate);
     gl.uniform3f(this.litLocs.ambient, ...AMBIENT);
     gl.uniform3f(this.litLocs.lightColor, 0, 0, 0);
-    gl.uniform1i(this.litLocs.wall, 0);
+    gl.uniform1i(this.litLocs.surface, SURFACE_FLOOR);
     this.draw(this.floor);
     gl.enable(gl.STENCIL_TEST);
     gl.stencilFunc(gl.ALWAYS, WALL, 0xff);
     gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
-    gl.uniform1i(this.litLocs.wall, 1);
+    gl.uniform1i(this.litLocs.surface, SURFACE_WALL);
     this.drawWalls(wallVerts);
+    this.drawLitDiscs(litDiscs, gl.LESS);
 
     // Each light adds its contribution over just the triangles it can see.
     // The sweep stops at wall centre lines, so the triangles reach over the
     // near half of each visible wall: those pixels fail the floor's stencil
-    // test and get marked SEEN instead, then the wall pass lights and clears them.
+    // test and get marked SEEN instead, then the wall pass lights and clears
+    // them. Lit discs don't block light; they are lit and cleared the same way.
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE);
     gl.uniform3f(this.litLocs.ambient, 0, 0, 0);
@@ -334,14 +378,15 @@ export class Renderer {
       } else {
         gl.uniform1f(this.litLocs.coneOuter, -1);
       }
-      gl.uniform1i(this.litLocs.wall, 0);
+      gl.uniform1i(this.litLocs.surface, SURFACE_FLOOR);
       gl.stencilFunc(gl.EQUAL, SEEN, WALL);
       gl.stencilOp(gl.REPLACE, gl.KEEP, gl.KEEP);
       this.draw(triangles);
-      gl.uniform1i(this.litLocs.wall, 1);
+      gl.uniform1i(this.litLocs.surface, SURFACE_WALL);
       gl.stencilFunc(gl.EQUAL, WALL | SEEN, WALL | SEEN);
       gl.stencilOp(gl.KEEP, gl.KEEP, gl.ZERO);
       this.drawWalls(wallVerts);
+      this.drawLitDiscs(litDiscs, gl.EQUAL);
     }
     gl.stencilMask(0xff);
     gl.disable(gl.STENCIL_TEST);
@@ -353,7 +398,8 @@ export class Renderer {
       gl.uniform3f(this.flatLocs.color, 0.5, 0.5, 0.5);
       this.draw(wallQuads([pending]));
     }
-    for (const { position, radius, color } of discs) {
+    for (const { position, radius, color, lit } of discs) {
+      if (lit) continue;
       gl.uniform3f(this.flatLocs.color, ...color);
       this.draw(circleFan(position, radius));
     }

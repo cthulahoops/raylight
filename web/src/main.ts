@@ -46,9 +46,15 @@ function randomClearPoint(clearance: number): Point {
   }
 }
 
-// A static enemy: a dark grey body whose red eyes follow the player.
-const enemy: Disc = { position: randomClearPoint(2 * player.radius), radius: player.radius, color: [0.2, 0.2, 0.2] };
-const EYE_COLOR: Color = [1, 0.1, 0.1];
+// A static enemy, lit by the scene so it hides in the dark: a dark grey body whose red eyes follow the player.
+const enemy: Disc = {
+  position: randomClearPoint(2 * player.radius),
+  radius: player.radius,
+  color: [0.4, 0.4, 0.4],
+  lit: true,
+};
+// Albedo above 1 so even dim light pushes the eyes to full red.
+const EYE_COLOR: Color = [3, 0.2, 0.2];
 
 /** The enemy's body plus two eyes set forward of its centre, facing the player. */
 function enemyDiscs(): Disc[] {
@@ -62,6 +68,7 @@ function enemyDiscs(): Disc[] {
     position: [ex + fx * 0.45 * r - fy * side * 0.4 * r, ey + fy * 0.45 * r + fx * side * 0.4 * r],
     radius: 0.2 * r,
     color: EYE_COLOR,
+    lit: true,
   });
   return [enemy, eye(1), eye(-1)];
 }
