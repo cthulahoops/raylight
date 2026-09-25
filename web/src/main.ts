@@ -172,6 +172,53 @@ function moveEnemy(enemy: Enemy, dt: number, lights: Light[]): void {
   if (!blocked) body.position = next;
 }
 
+// Gold coins to collect by walking over them. Each glows faintly with a
+// shimmering light of its own, so it shows in the dark and lights the floor
+// just around it. Enemies ignore the glow.
+interface Coin {
+  body: Disc;
+  seed: number; // keeps coins' shimmer out of step
+  light: Light;
+}
+const coins: Coin[] = []; // filled from the controls below
+const COIN_RADIUS = 12;
+// Albedo above 1 so the coin's own dim glow lights it bright gold.
+const COIN_COLOR: Color = [2.2, 1.9, 0.8];
+const COIN_GLOW_COLOR: Color = [1, 0.85, 0.45];
+const COIN_GLOW_HEIGHT = 20;
+const COIN_GLOW_FALLOFF = 0.03;
+let coinGlowBrightness = 0; // set from the controls below
+let coinsCollected = 0;
+const coinsCollectedOutput = document.querySelector<HTMLOutputElement>("#coins-collected")!;
+
+/** Adds or removes coins to reach `count`; new ones spawn clear of walls, the player, enemies and each other. */
+function setCoinCount(count: number): void {
+  coins.length = Math.min(coins.length, count);
+  while (coins.length < count) {
+    const clear = randomClearPoint(3 * COIN_RADIUS, [...enemies.map((e) => e.body), ...coins.map((c) => c.body)]);
+    // Integer coordinates, as the sweep needs them for exact tie-breaking.
+    const position: Point = [Math.round(clear[0]), Math.round(clear[1])];
+    const light: Light = { ...sweptLight(position, [0, 0, 0]), height: COIN_GLOW_HEIGHT, falloffRate: COIN_GLOW_FALLOFF };
+    coins.push({ body: { position, radius: COIN_RADIUS, color: COIN_COLOR, lit: true }, seed: Math.random() * 100, light });
+  }
+}
+
+/** Collects the coins the player touches and sets the rest shimmering. */
+function updateCoins(seconds: number): void {
+  for (let i = coins.length - 1; i >= 0; i--) {
+    const [cx, cy] = coins[i].body.position;
+    if (Math.hypot(player.position[0] - cx, player.position[1] - cy) < player.radius + COIN_RADIUS) {
+      coins.splice(i, 1);
+      coinsCollected++;
+      coinsCollectedOutput.value = String(coinsCollected);
+    }
+  }
+  for (const { seed, light } of coins) {
+    const k = coinGlowBrightness * (1 + 0.15 * Math.sin(seconds * 2.5 + seed));
+    light.color = [COIN_GLOW_COLOR[0] * k, COIN_GLOW_COLOR[1] * k, COIN_GLOW_COLOR[2] * k];
+  }
+}
+
 // Albedo above 1 so even dim light pushes the eyes to full red.
 const EYE_COLOR: Color = [3, 0.2, 0.2];
 
@@ -204,6 +251,7 @@ function updateWalls(): void {
   }
   playerGlow.triangles = playerLight.triangles;
   for (const flare of flares) flare.light.triangles = visibilityTriangles(flare.light.position, walls);
+  for (const coin of coins) coin.light.triangles = visibilityTriangles(coin.light.position, walls);
 }
 
 let wallStart: Point | null = null; // set after the first click of a new wall
@@ -414,11 +462,13 @@ function draw(time: DOMHighResTimeStamp): void {
   const dt = lastTime === null ? 0 : Math.min(seconds - lastTime / 1000, 0.1); // cap after a paused tab
   movePlayer(dt);
   updateFlares(dt, seconds);
+  updateCoins(seconds);
   lastTime = time;
   const lights = [pointerLight, playerLight, playerGlow, ...flares.map((f) => f.light)];
   for (const enemy of enemies) moveEnemy(enemy, dt, lights);
   const pending = wallStart ? segment(wallStart, pointerLight.position) : null;
-  renderer.render(walls, lights, pending, [player, ...enemies.flatMap(enemyDiscs), ...flares.map(flareDisc)]);
+  const discs = [...coins.map((c) => c.body), player, ...enemies.flatMap(enemyDiscs), ...flares.map(flareDisc)];
+  renderer.render(walls, [...lights, ...coins.map((c) => c.light)], pending, discs);
   requestAnimationFrame(draw);
 }
 
@@ -457,6 +507,8 @@ slider("enemy-count", setEnemyCount);
 slider("enemy-avoid-range", (v) => (enemyAvoidRange = v));
 slider("enemy-avoid-strength", (v) => (enemyAvoidStrength = v));
 slider("enemy-threshold", (v) => (enemyLightThreshold = v));
+slider("coin-count", setCoinCount);
+slider("coin-glow", (v) => (coinGlowBrightness = v));
 
 /**
  * Wires a colour picker and a brightness slider to a light colour setter. A
