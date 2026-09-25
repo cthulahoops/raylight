@@ -17,7 +17,8 @@ function sweptLight(position: Point, color: Color): Light {
 const pointerLight = sweptLight([0, 0], [0, 0, 0]); // colour set from the controls below
 
 // Arrow keys or WASD drive the player, who carries a warm torch aimed at the pointer.
-const player: Disc = { position: [0, -300], radius: 25, color: [1, 1, 1] };
+const PLAYER_START: Point = [0, -300];
+const player: Disc = { position: PLAYER_START, radius: 25, color: [1, 1, 1] };
 // An enemy touching the player destroys them, taking their torch and glow with them.
 let playerAlive = true;
 const playerLight: Light = {
@@ -335,6 +336,11 @@ function movePlayer(dt: number): void {
     const [x, y] = pushOutOfWalls([player.position[0] + dx * k, player.position[1] + dy * k], player.radius);
     player.position = [Math.max(-limit, Math.min(limit, x)), Math.max(-limit, Math.min(limit, y))];
   }
+  followPlayer();
+}
+
+/** Brings the torch and glow to the player's position. */
+function followPlayer(): void {
   // The sweep relies on integer coordinates for exact tie-breaking, so round
   // the light's position; the disc itself keeps its fractional position.
   playerLight.position = [Math.round(player.position[0]), Math.round(player.position[1])];
@@ -569,5 +575,29 @@ for (const button of document.querySelectorAll<HTMLButtonElement>("#controls .co
     setTimeout(() => (button.textContent = label), 1500);
   });
 }
+
+/**
+ * Brings the player back at the start, clears the flares and deals fresh
+ * enemies and coins. Walls stay as drawn.
+ */
+function restart(): void {
+  playerAlive = true;
+  player.position = pushOutOfWalls(PLAYER_START, player.radius);
+  followPlayer();
+  flares.length = 0;
+  // Counts come from the sliders, as collecting coins leaves fewer than set.
+  enemies.length = 0;
+  coins.length = 0;
+  setEnemyCount(input("enemy-count").valueAsNumber);
+  setCoinCount(input("coin-count").valueAsNumber);
+  coinsCollected = 0;
+  coinsCollectedOutput.value = "0";
+}
+
+const restartButton = document.querySelector<HTMLButtonElement>("#restart")!;
+restartButton.addEventListener("click", () => {
+  restart();
+  restartButton.blur(); // so Space throws a flare rather than pressing it again
+});
 
 requestAnimationFrame(draw);
