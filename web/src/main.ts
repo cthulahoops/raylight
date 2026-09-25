@@ -490,20 +490,25 @@ async function copyText(text: string): Promise<void> {
   if (!copied) throw new Error("copy failed");
 }
 
-// Copies every control's value as JSON, keyed by input id.
-const copyButton = document.querySelector<HTMLButtonElement>("#copy-settings")!;
-copyButton.addEventListener("click", async () => {
-  const inputs = [...document.querySelectorAll<HTMLInputElement>("#controls input")];
-  const settings = Object.fromEntries(inputs.map((el) => [el.id, el.type === "range" ? el.valueAsNumber : el.value]));
-  let result;
-  try {
-    await copyText(JSON.stringify(settings, null, 2));
-    result = "Copied";
-  } catch {
-    result = "Copy failed";
-  }
-  copyButton.textContent = result;
-  setTimeout(() => (copyButton.textContent = "Copy settings"), 1500);
-});
+// Each section's Copy button copies its controls' values as JSON, keyed by
+// input id; the one below all the sections copies every control.
+for (const button of document.querySelectorAll<HTMLButtonElement>("#controls .copy")) {
+  const label = button.textContent;
+  const scope = button.closest("details") ?? document.querySelector("#controls")!;
+  button.addEventListener("click", async (e) => {
+    e.preventDefault(); // don't open or close the section
+    const inputs = [...scope.querySelectorAll<HTMLInputElement>("input")];
+    const settings = Object.fromEntries(inputs.map((el) => [el.id, el.type === "range" ? el.valueAsNumber : el.value]));
+    let result;
+    try {
+      await copyText(JSON.stringify(settings, null, 2));
+      result = "Copied";
+    } catch {
+      result = "Copy failed";
+    }
+    button.textContent = result;
+    setTimeout(() => (button.textContent = label), 1500);
+  });
+}
 
 requestAnimationFrame(draw);
