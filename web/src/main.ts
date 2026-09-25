@@ -13,12 +13,7 @@ function sweptLight(position: Point, color: Color): Light {
   return { position, color, triangles: visibilityTriangles(position, walls) };
 }
 
-// Colours exceed 1 because the textured floor is dark and falls off with distance.
-const staticLights: Light[] = [
-  sweptLight([-500, -500], [1.6, 0.4, 0.4]),
-  sweptLight([650, 650], [0.4, 1.6, 0.4]),
-  sweptLight([-600, 600], [1.4, 1.1, 0.2]),
-];
+// A debugging light that follows the pointer; off unless turned up in the controls.
 const pointerLight = sweptLight([0, 0], [0, 0, 0]); // colour set from the controls below
 
 // Arrow keys or WASD drive the player, who carries a warm torch aimed at the pointer.
@@ -204,7 +199,7 @@ function aimTorch(): void {
 
 function updateWalls(): void {
   walls = splitCrossings(drawnWalls);
-  for (const light of [...staticLights, pointerLight, playerLight]) {
+  for (const light of [pointerLight, playerLight]) {
     light.triangles = visibilityTriangles(light.position, walls);
   }
   playerGlow.triangles = playerLight.triangles;
@@ -295,17 +290,6 @@ function movePlayer(dt: number): void {
   aimTorch();
 }
 
-let flickerAmount = 0; // set from the controls below
-const staticBrightness = staticLights.map(() => 1); // per-light multipliers, set from the sliders
-
-/** Brightness multiplier around 1; incommensurate sines so the flicker never visibly repeats. */
-function flicker(seconds: number, seed: number): number {
-  const s = seed * 2.39996; // golden angle, so lights stay out of step
-  const wobble =
-    (Math.sin(seconds * 2.9 + s) + 0.6 * Math.sin(seconds * 5.3 + 2 * s) + 0.3 * Math.sin(seconds * 9.7 + 3 * s)) / 1.9;
-  return Math.max(0, 1 + flickerAmount * wobble);
-}
-
 /** Whether segment pq crosses or touches the wall. */
 function crosses(p: Point, q: Point, { start: a, end: b }: Segment): boolean {
   const side = (o: Point, u: Point, v: Point) => Math.sign((u[0] - o[0]) * (v[1] - o[1]) - (u[1] - o[1]) * (v[0] - o[0]));
@@ -392,7 +376,7 @@ function flyFlare(flare: Flare, dt: number): void {
   if (!blocked) flare.position = pushOutOfWalls(next, FLARE_RADIUS); // otherwise stays put this frame, heading away
 }
 
-/** Fast, deep flicker, so flares sputter where the fixed lights only waver. */
+/** Fast, deep flicker, so flares sputter. */
 function sputter(seconds: number, seed: number): number {
   const wobble =
     (Math.sin(seconds * 17 + seed) + 0.7 * Math.sin(seconds * 31 + 2 * seed) + 0.5 * Math.sin(seconds * 53 + 3 * seed)) / 2.2;
@@ -424,7 +408,7 @@ function flareDisc(flare: Flare): Disc {
   return { position: flare.position, radius, color: [1, 0.3 + 0.6 * k, 0.2 + 0.5 * k] };
 }
 
-// Flicker changes every frame, so render continuously rather than on input.
+// Flares sputter and things move every frame, so render continuously rather than on input.
 let lastTime: DOMHighResTimeStamp | null = null;
 function draw(time: DOMHighResTimeStamp): void {
   const seconds = time / 1000;
@@ -432,11 +416,7 @@ function draw(time: DOMHighResTimeStamp): void {
   movePlayer(dt);
   updateFlares(dt, seconds);
   lastTime = time;
-  const flickering = staticLights.map((light, i): Light => {
-    const k = flicker(seconds, i) * staticBrightness[i];
-    return { ...light, color: [light.color[0] * k, light.color[1] * k, light.color[2] * k] };
-  });
-  const lights = [...flickering, pointerLight, playerLight, playerGlow, ...flares.map((f) => f.light)];
+  const lights = [pointerLight, playerLight, playerGlow, ...flares.map((f) => f.light)];
   for (const enemy of enemies) moveEnemy(enemy, dt, lights);
   const pending = wallStart ? segment(wallStart, pointerLight.position) : null;
   renderer.render(walls, lights, pending, [player, ...enemies.flatMap(enemyDiscs), ...flares.map(flareDisc)]);
@@ -461,7 +441,6 @@ function slider(id: string, set: (value: number) => void): void {
 
 slider("light-height", (v) => (renderer.lighting.lightHeight = v));
 slider("falloff-rate", (v) => (renderer.lighting.falloffRate = v));
-slider("flicker", (v) => (flickerAmount = v));
 slider("glow-brightness", (v) => {
   const [r, g, b] = PLAYER_GLOW_COLOR;
   playerGlow.color = [r * v, g * v, b * v];
@@ -480,7 +459,6 @@ slider("enemy-count", setEnemyCount);
 slider("enemy-avoid-range", (v) => (enemyAvoidRange = v));
 slider("enemy-avoid-strength", (v) => (enemyAvoidStrength = v));
 slider("enemy-threshold", (v) => (enemyLightThreshold = v));
-staticLights.forEach((_, i) => slider(`fixed-light-${i + 1}`, (v) => (staticBrightness[i] = v)));
 
 // A colour picker can't exceed 1, so brightness comes from a separate intensity.
 function updatePointerColor(): void {
