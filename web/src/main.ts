@@ -18,6 +18,8 @@ const pointerLight = sweptLight([0, 0], [0, 0, 0]); // colour set from the contr
 
 // Arrow keys or WASD drive the player, who carries a warm torch aimed at the pointer.
 const player: Disc = { position: [0, -300], radius: 25, color: [1, 1, 1] };
+// An enemy touching the player destroys them, taking their torch and glow with them.
+let playerAlive = true;
 const playerLight: Light = {
   ...sweptLight(player.position, [0, 0, 0]), // colour set from the controls below
   cone: { direction: [0, 1], halfAngle: (15 * Math.PI) / 180 },
@@ -205,9 +207,8 @@ function setCoinCount(count: number): void {
 
 /** Collects the coins the player touches and sets the rest shimmering. */
 function updateCoins(seconds: number): void {
-  for (let i = coins.length - 1; i >= 0; i--) {
-    const [cx, cy] = coins[i].body.position;
-    if (Math.hypot(player.position[0] - cx, player.position[1] - cy) < player.radius + COIN_RADIUS) {
+  for (let i = coins.length - 1; i >= 0 && playerAlive; i--) {
+    if (touchesPlayer(coins[i].body)) {
       coins.splice(i, 1);
       coinsCollected++;
       coinsCollectedOutput.value = String(coinsCollected);
@@ -217,6 +218,10 @@ function updateCoins(seconds: number): void {
     const k = coinGlowBrightness * (1 + 0.15 * Math.sin(seconds * 2.5 + seed));
     light.color = [COIN_GLOW_COLOR[0] * k, COIN_GLOW_COLOR[1] * k, COIN_GLOW_COLOR[2] * k];
   }
+}
+
+function touchesPlayer({ position: [x, y], radius }: Disc): boolean {
+  return Math.hypot(player.position[0] - x, player.position[1] - y) < player.radius + radius;
 }
 
 // Albedo above 1 so even dim light pushes the eyes to full red.
@@ -313,6 +318,7 @@ window.addEventListener("keyup", (e) => heldKeys.delete(e.code));
 window.addEventListener("blur", () => heldKeys.clear());
 
 function movePlayer(dt: number): void {
+  if (!playerAlive) return;
   let dx = 0;
   let dy = 0;
   for (const code of heldKeys) [dx, dy] = [dx + MOVE_KEYS[code][0], dy + MOVE_KEYS[code][1]];
@@ -378,7 +384,7 @@ function throwFlare(): void {
   const dx = pointerLight.position[0] - player.position[0];
   const dy = pointerLight.position[1] - player.position[1];
   const distance = Math.hypot(dx, dy);
-  if (distance === 0 || flareSpeed === 0) return;
+  if (!playerAlive || distance === 0 || flareSpeed === 0) return;
   // Launched upwards just fast enough to land after covering the distance.
   const flightTime = Math.min(distance, flareRange) / flareSpeed;
   const velocity: Point = [(dx / distance) * flareSpeed, (dy / distance) * flareSpeed];
@@ -464,10 +470,11 @@ function draw(time: DOMHighResTimeStamp): void {
   updateFlares(dt, seconds);
   updateCoins(seconds);
   lastTime = time;
-  const lights = [pointerLight, playerLight, playerGlow, ...flares.map((f) => f.light)];
+  const lights = [pointerLight, ...(playerAlive ? [playerLight, playerGlow] : []), ...flares.map((f) => f.light)];
   for (const enemy of enemies) moveEnemy(enemy, dt, lights);
+  if (enemies.some((e) => touchesPlayer(e.body))) playerAlive = false;
   const pending = wallStart ? segment(wallStart, pointerLight.position) : null;
-  const discs = [...coins.map((c) => c.body), player, ...enemies.flatMap(enemyDiscs), ...flares.map(flareDisc)];
+  const discs = [...coins.map((c) => c.body), ...(playerAlive ? [player] : []), ...enemies.flatMap(enemyDiscs), ...flares.map(flareDisc)];
   renderer.render(walls, [...lights, ...coins.map((c) => c.light)], pending, discs);
   requestAnimationFrame(draw);
 }
