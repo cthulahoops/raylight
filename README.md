@@ -9,3 +9,5 @@ Run the dev server:
     cd web
     npm install
     npm run dev
+
+`original/` holds the 2015 Haskell version this started from.
