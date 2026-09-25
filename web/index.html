@@ -6,13 +6,21 @@
     <title>raylight</title>
     <style>
       html, body { margin: 0; height: 100%; background: #111; color: #ccc; font: 14px system-ui, sans-serif; }
-      body { display: flex; align-items: center; justify-content: center; }
-      canvas { --size: min(100vw - 18rem, 100vh); width: var(--size); height: var(--size); image-rendering: pixelated; }
-      #controls { width: 16rem; max-height: 100vh; overflow-y: auto; box-sizing: border-box; padding: 0.5rem 1rem; display: grid; gap: 0.5rem; }
+      body { display: flex; align-items: center; }
+      canvas { --size: min(100vw - 18rem, 100vh); flex: none; width: var(--size); height: var(--size); image-rendering: pixelated; }
+      /*
+       * The controls fill the space beside the canvas, in as many columns as
+       * fit. The columns sit inside the scrolling form, as columns of a fixed
+       * height would overflow sideways rather than scroll.
+       */
+      #controls { flex: 1; align-self: stretch; overflow-y: auto; box-sizing: border-box; padding: 0.5rem 1rem; }
+      #sections { columns: 16rem; column-gap: 0.75rem; }
+      #sections > * { break-inside: avoid; margin-bottom: 0.5rem; }
+      #sections > button { width: 100%; }
       #controls details { border: 1px solid #333; border-radius: 4px; padding: 0.25rem 0.5rem; }
       #controls details[open] { padding-bottom: 0.5rem; }
-      #controls summary { cursor: pointer; font-weight: 600; line-height: 1.75rem; }
-      #controls summary .copy { float: right; }
+      #controls summary { cursor: pointer; font-weight: 600; line-height: 1.75rem; position: relative; padding-right: 3.5rem; }
+      #controls summary .copy { position: absolute; right: 0; top: 0.2rem; }
       #controls details[open] summary { margin-bottom: 0.5rem; }
       #controls details > label + label { margin-top: 0.5rem; }
       #controls label { display: grid; grid-template-columns: 1fr auto; gap: 0.25rem; }
@@ -23,88 +31,90 @@
   <body>
     <canvas id="scene" width="1024" height="1024"></canvas>
     <form id="controls" autocomplete="off">
-      <details open>
-        <summary>Lighting <button type="button" class="copy">Copy</button></summary>
-        <label>Light height <output for="light-height"></output>
-          <input id="light-height" type="range" min="10" max="1000" step="10" value="200">
-        </label>
-        <label>Falloff rate <output for="falloff-rate"></output>
-          <input id="falloff-rate" type="range" min="0" max="0.01" step="0.0001" value="0.005">
-        </label>
-      </details>
-      <details open>
-        <summary>Player <button type="button" class="copy">Copy</button></summary>
-        <label>Torch colour
-          <input id="torch-color" type="color" value="#ffd595">
-        </label>
-        <label>Torch brightness <output for="torch-brightness"></output>
-          <input id="torch-brightness" type="range" min="0" max="3" step="0.05" value="1.2">
-        </label>
-        <label>Glow brightness <output for="glow-brightness"></output>
-          <input id="glow-brightness" type="range" min="0" max="3" step="0.05" value="1">
-        </label>
-        <label>Glow height <output for="glow-height"></output>
-          <input id="glow-height" type="range" min="10" max="400" step="5" value="60">
-        </label>
-        <label>Glow falloff rate <output for="glow-falloff"></output>
-          <input id="glow-falloff" type="range" min="0" max="0.1" step="0.001" value="0.02">
-        </label>
-      </details>
-      <details open>
-        <summary>Flares <button type="button" class="copy">Copy</button></summary>
-        <label>Colour
-          <input id="flare-color" type="color" value="#ff4d26">
-        </label>
-        <label>Brightness <output for="flare-brightness"></output>
-          <input id="flare-brightness" type="range" min="0" max="5" step="0.1" value="2.4">
-        </label>
-        <label>Burn time (s) <output for="flare-burn-time"></output>
-          <input id="flare-burn-time" type="range" min="1" max="40" step="0.5" value="16.5">
-        </label>
-        <label>Range <output for="flare-range"></output>
-          <input id="flare-range" type="range" min="100" max="1000" step="10" value="380">
-        </label>
-        <label>Throw speed <output for="flare-speed"></output>
-          <input id="flare-speed" type="range" min="50" max="600" step="10" value="200">
-        </label>
-        <label>Gravity <output for="flare-gravity"></output>
-          <input id="flare-gravity" type="range" min="50" max="1000" step="10" value="300">
-        </label>
-        <label>Wall bounciness <output for="flare-bounce"></output>
-          <input id="flare-bounce" type="range" min="0" max="1" step="0.05" value="0.5">
-        </label>
-        <label>Floor bounciness <output for="flare-floor-bounce"></output>
-          <input id="flare-floor-bounce" type="range" min="0" max="0.9" step="0.05" value="0.5">
-        </label>
-        <label>Speed kept through floor bounce <output for="flare-floor-grip"></output>
-          <input id="flare-floor-grip" type="range" min="0" max="1" step="0.05" value="0.25">
-        </label>
-      </details>
-      <details open>
-        <summary>Enemies <button type="button" class="copy">Copy</button></summary>
-        <label>Count <output for="enemy-count"></output>
-          <input id="enemy-count" type="range" min="0" max="30" step="1" value="3">
-        </label>
-        <label>Light that attracts them <output for="enemy-threshold"></output>
-          <input id="enemy-threshold" type="range" min="0" max="1" step="0.01" value="0.25">
-        </label>
-        <label>Avoidance range <output for="enemy-avoid-range"></output>
-          <input id="enemy-avoid-range" type="range" min="0" max="300" step="5" value="100">
-        </label>
-        <label>Avoidance strength <output for="enemy-avoid-strength"></output>
-          <input id="enemy-avoid-strength" type="range" min="0" max="5" step="0.1" value="1.5">
-        </label>
-      </details>
-      <details>
-        <summary>Pointer light (debugging) <button type="button" class="copy">Copy</button></summary>
-        <label>Colour
-          <input id="pointer-color" type="color" value="#6699ff">
-        </label>
-        <label>Intensity <output for="pointer-intensity"></output>
-          <input id="pointer-intensity" type="range" min="0" max="10" step="0.1" value="0">
-        </label>
-      </details>
-      <button type="button" class="copy">Copy all settings</button>
+      <div id="sections">
+        <details open>
+          <summary>Lighting <button type="button" class="copy">Copy</button></summary>
+          <label>Light height <output for="light-height"></output>
+            <input id="light-height" type="range" min="10" max="1000" step="10" value="200">
+          </label>
+          <label>Falloff rate <output for="falloff-rate"></output>
+            <input id="falloff-rate" type="range" min="0" max="0.01" step="0.0001" value="0.005">
+          </label>
+        </details>
+        <details open>
+          <summary>Player <button type="button" class="copy">Copy</button></summary>
+          <label>Torch colour
+            <input id="torch-color" type="color" value="#ffd595">
+          </label>
+          <label>Torch brightness <output for="torch-brightness"></output>
+            <input id="torch-brightness" type="range" min="0" max="3" step="0.05" value="1.2">
+          </label>
+          <label>Glow brightness <output for="glow-brightness"></output>
+            <input id="glow-brightness" type="range" min="0" max="3" step="0.05" value="1">
+          </label>
+          <label>Glow height <output for="glow-height"></output>
+            <input id="glow-height" type="range" min="10" max="400" step="5" value="60">
+          </label>
+          <label>Glow falloff rate <output for="glow-falloff"></output>
+            <input id="glow-falloff" type="range" min="0" max="0.1" step="0.001" value="0.02">
+          </label>
+        </details>
+        <details open>
+          <summary>Flares <button type="button" class="copy">Copy</button></summary>
+          <label>Colour
+            <input id="flare-color" type="color" value="#ff4d26">
+          </label>
+          <label>Brightness <output for="flare-brightness"></output>
+            <input id="flare-brightness" type="range" min="0" max="5" step="0.1" value="2.4">
+          </label>
+          <label>Burn time (s) <output for="flare-burn-time"></output>
+            <input id="flare-burn-time" type="range" min="1" max="40" step="0.5" value="16.5">
+          </label>
+          <label>Range <output for="flare-range"></output>
+            <input id="flare-range" type="range" min="100" max="1000" step="10" value="380">
+          </label>
+          <label>Throw speed <output for="flare-speed"></output>
+            <input id="flare-speed" type="range" min="50" max="600" step="10" value="200">
+          </label>
+          <label>Gravity <output for="flare-gravity"></output>
+            <input id="flare-gravity" type="range" min="50" max="1000" step="10" value="300">
+          </label>
+          <label>Wall bounciness <output for="flare-bounce"></output>
+            <input id="flare-bounce" type="range" min="0" max="1" step="0.05" value="0.5">
+          </label>
+          <label>Floor bounciness <output for="flare-floor-bounce"></output>
+            <input id="flare-floor-bounce" type="range" min="0" max="0.9" step="0.05" value="0.5">
+          </label>
+          <label>Speed kept through floor bounce <output for="flare-floor-grip"></output>
+            <input id="flare-floor-grip" type="range" min="0" max="1" step="0.05" value="0.25">
+          </label>
+        </details>
+        <details open>
+          <summary>Enemies <button type="button" class="copy">Copy</button></summary>
+          <label>Count <output for="enemy-count"></output>
+            <input id="enemy-count" type="range" min="0" max="30" step="1" value="3">
+          </label>
+          <label>Light that attracts them <output for="enemy-threshold"></output>
+            <input id="enemy-threshold" type="range" min="0" max="1" step="0.01" value="0.25">
+          </label>
+          <label>Avoidance range <output for="enemy-avoid-range"></output>
+            <input id="enemy-avoid-range" type="range" min="0" max="300" step="5" value="100">
+          </label>
+          <label>Avoidance strength <output for="enemy-avoid-strength"></output>
+            <input id="enemy-avoid-strength" type="range" min="0" max="5" step="0.1" value="1.5">
+          </label>
+        </details>
+        <details>
+          <summary>Pointer light (debugging) <button type="button" class="copy">Copy</button></summary>
+          <label>Colour
+            <input id="pointer-color" type="color" value="#6699ff">
+          </label>
+          <label>Intensity <output for="pointer-intensity"></output>
+            <input id="pointer-intensity" type="range" min="0" max="10" step="0.1" value="0">
+          </label>
+        </details>
+        <button type="button" class="copy">Copy all settings</button>
+      </div>
     </form>
     <script type="module" src="/src/main.ts"></script>
   </body>
