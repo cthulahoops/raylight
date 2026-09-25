@@ -19,7 +19,7 @@ const pointerLight = sweptLight([0, 0], [0, 0, 0]); // colour set from the contr
 // Arrow keys or WASD drive the player, who carries a warm torch aimed at the pointer.
 const player: Disc = { position: [0, -300], radius: 25, color: [1, 1, 1] };
 const playerLight: Light = {
-  ...sweptLight(player.position, [1.2, 1.0, 0.7]),
+  ...sweptLight(player.position, [0, 0, 0]), // colour set from the controls below
   cone: { direction: [0, 1], halfAngle: (15 * Math.PI) / 180 },
 };
 // A dim, low glow with quick falloff that lights just the player's
@@ -314,11 +314,10 @@ const flares: Flare[] = [];
 const FLARE_RADIUS = 6;
 const FLARE_LIGHT_HEIGHT = 30; // above the flare itself, so it lights the floor around it once landed
 const FLARE_HEIGHT_SCALE = 150; // height at which the flare is drawn twice its size, to show the arc
-const FLARE_COLOR: Color = [1, 0.3, 0.15]; // scaled by the brightness slider
 const FLARE_FADE = 1; // seconds of fading out at the end of the burn
 const FLARE_SETTLE_SPEED = 50; // upward speed off the floor below which a flare stops bouncing
 // Set from the controls below.
-let flareBrightness = 0;
+let flareColor: Color = [0, 0, 0];
 let flareBurnTime = 0; // seconds
 let flareRange = 0; // world units
 let flareSpeed = 0; // world units per second across the floor
@@ -393,8 +392,8 @@ function updateFlares(dt: number, seconds: number): void {
       flare.light.height = FLARE_LIGHT_HEIGHT + flare.z;
     }
     const fade = Math.min(1, (flareBurnTime - flare.age) / FLARE_FADE);
-    const k = flareBrightness * sputter(seconds, flare.seed) * Math.max(0, fade);
-    flare.light.color = [FLARE_COLOR[0] * k, FLARE_COLOR[1] * k, FLARE_COLOR[2] * k];
+    const k = sputter(seconds, flare.seed) * Math.max(0, fade);
+    flare.light.color = [flareColor[0] * k, flareColor[1] * k, flareColor[2] * k];
   }
   for (let i = flares.length - 1; i >= 0; i--) {
     if (flares[i].age >= flareBurnTime) flares.splice(i, 1);
@@ -447,7 +446,6 @@ slider("glow-brightness", (v) => {
 });
 slider("glow-height", (v) => (playerGlow.height = v));
 slider("glow-falloff", (v) => (playerGlow.falloffRate = v));
-slider("flare-brightness", (v) => (flareBrightness = v));
 slider("flare-burn-time", (v) => (flareBurnTime = v));
 slider("flare-range", (v) => (flareRange = v));
 slider("flare-speed", (v) => (flareSpeed = v));
@@ -460,14 +458,23 @@ slider("enemy-avoid-range", (v) => (enemyAvoidRange = v));
 slider("enemy-avoid-strength", (v) => (enemyAvoidStrength = v));
 slider("enemy-threshold", (v) => (enemyLightThreshold = v));
 
-// A colour picker can't exceed 1, so brightness comes from a separate intensity.
-function updatePointerColor(): void {
-  const hex = parseInt(input("pointer-color").value.slice(1), 16);
-  const k = input("pointer-intensity").valueAsNumber / 255;
-  pointerLight.color = [((hex >> 16) & 255) * k, ((hex >> 8) & 255) * k, (hex & 255) * k];
+/**
+ * Wires a colour picker and a brightness slider to a light colour setter. A
+ * colour picker can't exceed 1, so brightness comes from the slider.
+ */
+function colorControl(colorId: string, brightnessId: string, set: (color: Color) => void): void {
+  const update = () => {
+    const hex = parseInt(input(colorId).value.slice(1), 16);
+    const k = input(brightnessId).valueAsNumber / 255;
+    set([((hex >> 16) & 255) * k, ((hex >> 8) & 255) * k, (hex & 255) * k]);
+  };
+  input(colorId).addEventListener("input", update);
+  slider(brightnessId, update);
 }
-input("pointer-color").addEventListener("input", updatePointerColor);
-slider("pointer-intensity", updatePointerColor);
+
+colorControl("pointer-color", "pointer-intensity", (c) => (pointerLight.color = c));
+colorControl("torch-color", "torch-brightness", (c) => (playerLight.color = c));
+colorControl("flare-color", "flare-brightness", (c) => (flareColor = c));
 
 /** Copies text, falling back to a hidden textarea where the Clipboard API is missing (plain http). */
 async function copyText(text: string): Promise<void> {
