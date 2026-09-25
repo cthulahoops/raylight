@@ -1,13 +1,11 @@
 # raylight
 
-Python port of the 2D ray-lighting experiment. `raylighting.py` holds the
-angular-sweep visibility algorithm; `render.py` draws the result headlessly
-with moderngl.
+2D ray-lighting experiment in the browser. `web/src/raylighting.ts` holds the
+angular-sweep visibility algorithm; `web/src/renderer.ts` draws the result
+with WebGL.
 
-Requires a Mesa EGL stack for headless rendering:
+Run the dev server:
 
-    sudo apt install libegl1 libegl-mesa0 libgl1-mesa-dri libgbm1 libgl1
-
-Run the demo:
-
-    uv run raylight -o out.png
+    cd web
+    npm install
+    npm run dev
