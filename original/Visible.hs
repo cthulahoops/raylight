@@ -10,6 +10,7 @@ import Control.Applicative
 import Control.Concurrent
 import Data.Function
 import Data.IORef
+import Data.List
 import Foreign
 import Foreign.C.String
 
@@ -20,6 +21,9 @@ import BMP
 import Vector
 import Shaders
 import RayLighting
+
+import Walls
+import Dungeon
 
 data GLIds = GLIds {
     progScene :: !GLuint,
@@ -152,7 +156,7 @@ createFrameBuffer size = do
     when (status /= gl_FRAMEBUFFER_COMPLETE) $ fail "Incomplete framebuffer"
     return $ DrawableTexture frameBuffer renderedTexture
 
-initGLStuff = do
+initGLStuff walls floors = do
     glClearColor 0.0 0.0 0.0 0
     progScene <- loadProgram "scene.vert" "scene.frag"
     progLight <- loadProgram "light.vert" "light.frag"
@@ -170,19 +174,26 @@ initGLStuff = do
     posAttrib <- getAttribute progScene "vertexPosition_modelspace"
     normalAttrib <- getAttribute progScene "vertexNormal"
 
-    let lights = [
-                    RayLight (Vector3 0.8 0.8 0.8) (Vector2 0 0),
-                    RayLight (Vector3 0.8 0.0 0.0) (Vector2 700 (-700)),
-                    RayLight (Vector3 0.4 0.0 0.4) (Vector2 (-950) 975),
-                    RayLight (Vector3 0.0 0.4 0.4) (Vector2 950 975), 
-                    RayLight (Vector3 0.4 0.4 0.0) (Vector2 (-950) (-975))]
+    g <- newStdGen 
+    let lightLocations = map ((^+ Vector2 50 50) . squareToVector . snd)
+                       $ sort $ zip (randoms g :: [Int]) floors
 
-    let (verts, norms) = unzip $ map segmentToBox example
+    let colors = [(Vector3 0.8 0.0 0.0), (Vector3 0.0 0.8 0.0),
+                (Vector3 0.0 0.0 0.8), (Vector3 0.8 0.0 0.8),
+                (Vector3 0.0 0.8 0.8)]
+
+    let lights = zipWith RayLight colors lightLocations
+
+    let (verts, norms) = unzip $ map segmentToBox walls
 
     wallObj <- makeSceneObj gl_QUADS (toVertexList $ concat $ verts) (toVertexList $ concat $ norms)
+
+    let tiles = [[x, y, 0, x + 100, y, 0, x + 100, y + 100, 0, x, y + 100, 0]
+                    | Vector2 x y <- map squareToVector floors]
+
     floorObj <- makeSceneObj gl_QUADS
-                    [1000, 1000, 0, 1000, -1000, 0, -1000, -1000, 0, -1000, 1000, 0]
-                    [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]
+                    (concat tiles)
+                    (concat $ map (const [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]) tiles)
     
 
     let vertsp = toVertexList3 $ concat [[Vector3 (30 * sin (2 * pi * t/12)) (30 * cos (2 * pi * t/12)) 30,
@@ -200,25 +211,25 @@ initGLStuff = do
     floorNormal  <- loadBMP $ "50/" ++ show texId ++ "_norm.bmp"
 
     lightTextures <- replicateM (length lights) $ createFrameBuffer 2048 
-    zipWithM_ (renderLight progLight) lights lightTextures
+    zipWithM_ (renderLight progLight walls) lights lightTextures
 
     playerLight <- createFrameBuffer 2048
     return GLIds{..}
 
-renderLight :: GLuint -> RayLight -> DrawableTexture -> IO ()
-renderLight progLight light drawable = do
+renderLight :: GLuint -> [Segment] -> RayLight -> DrawableTexture -> IO ()
+renderLight progLight walls light drawable = do
     glBindFramebuffer gl_FRAMEBUFFER (drawableFramebuffer drawable)
     glViewport 0 0 2048 2048
     glClear gl_COLOR_BUFFER_BIT
     glUseProgram progLight
     glEnableVertexAttribArray 0  -- 1st attribute: vertices
     glBlendFunc gl_ONE gl_ONE
-    drawLight light
+    drawLight walls light
     return ()
 
-drawLight :: RayLight -> IO ()
-drawLight light@RayLight{..} = do
-    (count, bufferId) <- makeLight light example
+drawLight :: [Segment] -> RayLight -> IO ()
+drawLight walls light@RayLight{..} = do
+    (count, bufferId) <- makeLight light walls
     glBindBuffer gl_ARRAY_BUFFER bufferId
     glVertexAttribPointer 0 3 gl_FLOAT (fromBool False) 0 nullPtr
     glDrawArrays gl_TRIANGLES 0 (fromIntegral count)
@@ -233,15 +244,15 @@ data Game = Game {
     gameLight :: Bool
     } deriving (Show)
 
-draw :: GLIds -> Game -> IO ()
-draw GLIds{..} Game{..} = do
+draw :: GLIds -> [Segment] -> Game -> IO ()
+draw GLIds{..} walls Game{..} = do
     let (x,y) = gamePosition
     -- Render light before we do any drawing!
     --
     let playerColor = if gameLight then Vector3 0.8 0.8 0.4 else Vector3 0.0 0.0 0.0
 
     let pl = RayLight playerColor (Vector2 x y)
-    renderLight progLight pl playerLight
+    renderLight progLight walls pl playerLight
 
     glBindFramebuffer gl_FRAMEBUFFER 0
     glViewport 0 0 800 800
@@ -323,8 +334,8 @@ handleEvent game _ = game
 
 withGamePosition game f = game {gamePosition = f (gamePosition game)}
 
-mainLoop window glids frames events state = do
-    draw glids state
+mainLoop window glids walls frames events state = do
+    draw glids walls state
     W.swapBuffers window
 
     W.pollEvents
@@ -342,25 +353,38 @@ mainLoop window glids frames events state = do
     let delay = round $ 1000000 * (frames / 30 - t)
     if delay > 0 then threadDelay delay else return ()
 
-    when continue (mainLoop window glids (frames + 1) events state')
+    when continue (mainLoop window glids walls (frames + 1) events state')
 
 cleanUpGLStuff GLIds{..} = do
     with vertexArrayId $ glDeleteVertexArrays 1
 
 handleKey events window key n st mod = modifyIORef events (++ [(key, st)])
 
+squareToVector (x,y) = Vector2 (fromIntegral x * 100 - 1000) (fromIntegral y * 100 - 1000)
+
 main = do
     W.init
     Just window <- W.createWindow 800 800 "foo" Nothing Nothing
     W.makeContextCurrent (Just window)
     -- W.enableKeyRepeat
-    ids <- initGLStuff
+    print "Generating dungeon:"
+    g <- newStdGen
+    let dungeon = generateDungeon g 80 100
+    print $ gridSquares dungeon
+    print (gridWidth dungeon, gridHeight dungeon)
+    print $ "Duneon Walls:"
+    print $ dungeonWalls dungeon
+    let walls = map (\(a,b) -> Segment (squareToVector a) (squareToVector b)) $ dungeonWalls dungeon
+
+    print walls
+
+    ids <- initGLStuff walls (gridSquares dungeon)
     print ids
 
     events <- newIORef []
     
     W.setKeyCallback window (Just $ handleKey events)
-    mainLoop window ids 0 events Game {gamePosition = (0, 0), gameLight = True}
+    mainLoop window ids walls 0 events Game {gamePosition = (0, 0), gameLight = True}
     cleanUpGLStuff ids
     W.terminate
 

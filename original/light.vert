@@ -5,6 +5,6 @@ in vec3 vertexPosition_modelspace;
 
 void main() {
 
-    gl_Position.xyz = vertexPosition_modelspace * 0.0008;
+    gl_Position.xyz = vertexPosition_modelspace * 0.0008 * 0.5;
 }
 

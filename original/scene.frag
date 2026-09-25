@@ -17,7 +17,7 @@ uniform vec3 lightPos[6];
 uniform vec3 lightColor[6];
 uniform vec3 emmissive;
 
-const float zoom = 0.001;
+const float zoom = 0.002;
 const int n_lights = 6;
 
 void main()
