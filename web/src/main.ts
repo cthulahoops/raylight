@@ -312,30 +312,84 @@ function crosses(p: Point, q: Point, { start: a, end: b }: Segment): boolean {
   return side(p, q, a) !== side(p, q, b) && side(a, b, p) !== side(a, b, q);
 }
 
-// Space throws a flare towards the pointer. It flies until it reaches the
-// pointer or hits a wall, and burns with a sputtering light that fades out at
-// the end. Enemies are drawn to it like any other light.
+// Space throws a flare towards the pointer, or as far as it can reach
+// towards it. It arcs up and first lands after the flight time for that
+// distance, bouncing off walls on the way and off the floor a few times before
+// settling, and burns with a sputtering light that fades
+// out at the end. Enemies are drawn to it like any other light.
 interface Flare {
   position: Point;
-  target: Point | null; // null once landed
+  velocity: Point; // world units per second across the floor; zero once landed
+  z: number; // height above the floor
+  vz: number; // upward speed
   age: number; // seconds
   seed: number; // keeps flares' flicker out of step
   light: Light;
 }
 const flares: Flare[] = [];
-const FLARE_SPEED = 900; // world units per second
 const FLARE_RADIUS = 6;
+const FLARE_LIGHT_HEIGHT = 30; // above the flare itself, so it lights the floor around it once landed
+const FLARE_HEIGHT_SCALE = 150; // height at which the flare is drawn twice its size, to show the arc
 const FLARE_COLOR: Color = [1, 0.3, 0.15]; // scaled by the brightness slider
 const FLARE_FADE = 1; // seconds of fading out at the end of the burn
-let flareBrightness = 0; // set from the controls below
-let flareBurnTime = 0; // seconds, set from the controls below
+const FLARE_SETTLE_SPEED = 50; // upward speed off the floor below which a flare stops bouncing
+// Set from the controls below.
+let flareBrightness = 0;
+let flareBurnTime = 0; // seconds
+let flareRange = 0; // world units
+let flareSpeed = 0; // world units per second across the floor
+let flareGravity = 0; // world units per second squared
+let flareBounce = 0; // fraction of speed into a wall kept bouncing off it
+let flareFloorBounce = 0; // fraction of downward speed kept bouncing off the floor
+let flareFloorGrip = 0; // fraction of speed across the floor kept through a floor bounce
 
 function throwFlare(): void {
-  const target = pointerLight.position;
-  if (target[0] === player.position[0] && target[1] === player.position[1]) return;
-  const position = player.position;
-  const light: Light = { ...sweptLight(playerLight.position, [0, 0, 0]), height: 30, falloffRate: 0.01 };
-  flares.push({ position, target, age: 0, seed: Math.random() * 100, light });
+  const dx = pointerLight.position[0] - player.position[0];
+  const dy = pointerLight.position[1] - player.position[1];
+  const distance = Math.hypot(dx, dy);
+  if (distance === 0 || flareSpeed === 0) return;
+  // Launched upwards just fast enough to land after covering the distance.
+  const flightTime = Math.min(distance, flareRange) / flareSpeed;
+  const velocity: Point = [(dx / distance) * flareSpeed, (dy / distance) * flareSpeed];
+  const light: Light = { ...sweptLight(playerLight.position, [0, 0, 0]), height: FLARE_LIGHT_HEIGHT, falloffRate: 0.01 };
+  const vz = (flareGravity * flightTime) / 2;
+  flares.push({ position: player.position, velocity, z: 0, vz, age: 0, seed: Math.random() * 100, light });
+}
+
+/** Moves an airborne flare for dt, bouncing it off the floor, arena edge and walls. */
+function flyFlare(flare: Flare, dt: number): void {
+  flare.vz -= flareGravity * dt;
+  flare.z += flare.vz * dt;
+  let [vx, vy] = flare.velocity;
+  if (flare.z <= 0) {
+    // Hit the floor where it was at the start of the frame. Bounce back up,
+    // losing speed, until the bounces are too small to see.
+    flare.z = 0;
+    flare.vz = -flareFloorBounce * flare.vz;
+    flare.velocity = [vx * flareFloorGrip, vy * flareFloorGrip];
+    if (flare.vz < FLARE_SETTLE_SPEED) [flare.vz, flare.velocity] = [0, [0, 0]];
+    return;
+  }
+  const [x, y] = flare.position;
+  const next: Point = [x + vx * dt, y + vy * dt];
+  const limit = 1000 - FLARE_RADIUS;
+  let blocked = false;
+  if (Math.abs(next[0]) > limit && vx * next[0] > 0) [vx, blocked] = [-flareBounce * vx, true];
+  if (Math.abs(next[1]) > limit && vy * next[1] > 0) [vy, blocked] = [-flareBounce * vy, true];
+  const hit = walls.find((w) => crosses(flare.position, next, w));
+  if (hit) {
+    // Reverse and damp the speed into the wall, keeping the speed along it.
+    const wx = hit.end[0] - hit.start[0];
+    const wy = hit.end[1] - hit.start[1];
+    const len = Math.hypot(wx, wy) || 1;
+    const [nx, ny] = [-wy / len, wx / len];
+    const into = vx * nx + vy * ny;
+    vx -= (1 + flareBounce) * into * nx;
+    vy -= (1 + flareBounce) * into * ny;
+    blocked = true;
+  }
+  flare.velocity = [vx, vy];
+  if (!blocked) flare.position = pushOutOfWalls(next, FLARE_RADIUS); // otherwise stays put this frame, heading away
 }
 
 /** Fast, deep flicker, so flares sputter where the fixed lights only waver. */
@@ -348,21 +402,11 @@ function sputter(seconds: number, seed: number): number {
 function updateFlares(dt: number, seconds: number): void {
   for (const flare of flares) {
     flare.age += dt;
-    if (flare.target) {
-      const [x, y] = flare.position;
-      const dx = flare.target[0] - x;
-      const dy = flare.target[1] - y;
-      const remaining = Math.hypot(dx, dy);
-      const step = Math.min(FLARE_SPEED * dt, remaining);
-      const next: Point = remaining > 0 ? [x + (dx / remaining) * step, y + (dy / remaining) * step] : flare.target;
-      if (walls.some((w) => crosses(flare.position, next, w))) {
-        flare.target = null; // drops where it hit
-      } else {
-        flare.position = pushOutOfWalls(next, FLARE_RADIUS);
-        if (step === remaining) flare.target = null;
-      }
+    if (flare.z > 0 || flare.vz > 0) {
+      flyFlare(flare, dt);
       flare.light.position = [Math.round(flare.position[0]), Math.round(flare.position[1])];
       flare.light.triangles = visibilityTriangles(flare.light.position, walls);
+      flare.light.height = FLARE_LIGHT_HEIGHT + flare.z;
     }
     const fade = Math.min(1, (flareBurnTime - flare.age) / FLARE_FADE);
     const k = flareBrightness * sputter(seconds, flare.seed) * Math.max(0, fade);
@@ -373,10 +417,11 @@ function updateFlares(dt: number, seconds: number): void {
   }
 }
 
-/** A flare's burning head, drawn flat so it glows whatever the lighting. */
+/** A flare's burning head, drawn flat so it glows whatever the lighting, and bigger the higher it is. */
 function flareDisc(flare: Flare): Disc {
   const k = Math.min(1, Math.max(...flare.light.color));
-  return { position: flare.position, radius: FLARE_RADIUS, color: [1, 0.3 + 0.6 * k, 0.2 + 0.5 * k] };
+  const radius = FLARE_RADIUS * (1 + flare.z / FLARE_HEIGHT_SCALE);
+  return { position: flare.position, radius, color: [1, 0.3 + 0.6 * k, 0.2 + 0.5 * k] };
 }
 
 // Flicker changes every frame, so render continuously rather than on input.
@@ -425,6 +470,12 @@ slider("glow-height", (v) => (playerGlow.height = v));
 slider("glow-falloff", (v) => (playerGlow.falloffRate = v));
 slider("flare-brightness", (v) => (flareBrightness = v));
 slider("flare-burn-time", (v) => (flareBurnTime = v));
+slider("flare-range", (v) => (flareRange = v));
+slider("flare-speed", (v) => (flareSpeed = v));
+slider("flare-gravity", (v) => (flareGravity = v));
+slider("flare-bounce", (v) => (flareBounce = v));
+slider("flare-floor-bounce", (v) => (flareFloorBounce = v));
+slider("flare-floor-grip", (v) => (flareFloorGrip = v));
 slider("enemy-count", setEnemyCount);
 slider("enemy-avoid-range", (v) => (enemyAvoidRange = v));
 slider("enemy-avoid-strength", (v) => (enemyAvoidStrength = v));
