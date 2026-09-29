@@ -21,7 +21,8 @@ const pointerLight = sweptLight([0, 0], [0, 0, 0]); // colour set from the contr
 const PLAYER_START: Point = [0, -300];
 const player: Disc = { position: PLAYER_START, radius: 25, color: [1, 1, 1] };
 // An enemy touching the player destroys them. Their torch and glow stay
-// where they fell, sputtering out, and the flares they held spill out lit.
+// where they fell, sputtering out, the flares they held spill out lit, and
+// they shatter.
 let playerAlive = true;
 let deathAge = 0; // seconds since the player died
 const TORCH_DEATH_TIME = 1.5; // seconds for the torch to sputter out
@@ -271,6 +272,7 @@ function killPlayer(): void {
   playerAlive = false;
   deathAge = 0;
   spillFlares();
+  shatterPlayer();
 }
 
 /**
@@ -599,6 +601,51 @@ function flareDisc(flare: Flare): Disc {
   return { position: flare.position, radius, color: [1, 0.3 + 0.6 * k, 0.2 + 0.5 * k] };
 }
 
+// Dying shatters the player into shards that scatter and skid to a halt. They
+// glow white hot at first, cooling to plain bodies lit by the scene, so once
+// the torch is out they show only in the light of flares.
+interface Shard {
+  body: Disc;
+  velocity: Point; // world units per second
+}
+const shards: Shard[] = [];
+const SHARD_COUNT = 14;
+const SHARD_FRICTION = 4; // per second: the fraction of speed lost is 1 - e^(-friction * t)
+const SHARD_COOL_TIME = 0.6; // seconds of glowing
+const SHARD_COLOR: Color = [0.9, 0.9, 0.9];
+
+function shatterPlayer(): void {
+  const [px, py] = player.position;
+  for (let i = 0; i < SHARD_COUNT; i++) {
+    const angle = Math.random() * 2 * Math.PI;
+    const [dx, dy] = [Math.cos(angle), Math.sin(angle)];
+    const offset = Math.random() * 0.6 * player.radius;
+    const speed = 150 + 300 * Math.random();
+    const body: Disc = { position: [px + dx * offset, py + dy * offset], radius: 3 + 5 * Math.random(), color: SHARD_COLOR, lit: true };
+    shards.push({ body, velocity: [dx * speed, dy * speed] });
+  }
+}
+
+/** Slides the shards on, stopping any that would cross a wall or the arena edge, and cools their glow. */
+function updateShards(dt: number): void {
+  const heat = Math.max(0, 1 - deathAge / SHARD_COOL_TIME);
+  const slow = Math.exp(-SHARD_FRICTION * dt);
+  for (const shard of shards) {
+    const { body } = shard;
+    const [vx, vy] = shard.velocity;
+    const next: Point = [body.position[0] + vx * dt, body.position[1] + vy * dt];
+    const limit = 1000 - body.radius;
+    const outside = Math.abs(next[0]) > limit || Math.abs(next[1]) > limit;
+    if (outside || walls.some((w) => crosses(body.position, next, w))) {
+      shard.velocity = [0, 0];
+    } else {
+      body.position = next;
+      shard.velocity = [vx * slow, vy * slow];
+    }
+    body.emission = [3 * heat, 3 * heat, 3 * heat];
+  }
+}
+
 // Frame rate, and the average time our code took per frame, over each half
 // second. The frame rate tops out at the display's refresh rate; the time is
 // only what the CPU spends, as the GPU draws after the frame is handed over.
@@ -637,6 +684,7 @@ function draw(time: DOMHighResTimeStamp): void {
   movePlayer(dt);
   const torchLit = updateTorch(dt, seconds);
   updateFlares(dt, seconds);
+  updateShards(dt);
   updateCoins(seconds);
   updateCrates();
   lastTime = time;
@@ -648,6 +696,7 @@ function draw(time: DOMHighResTimeStamp): void {
     ...coins.map((c) => c.body),
     ...crates.flatMap(crateDiscs),
     ...(playerAlive ? [player] : []),
+    ...shards.map((s) => s.body),
     ...enemies.flatMap(enemyDiscs),
     ...flares.map(flareDisc),
   ];
@@ -764,7 +813,8 @@ for (const button of document.querySelectorAll<HTMLButtonElement>("#controls .co
 
 /**
  * Brings the player back at the start with a fresh stock of flares, clears
- * the thrown ones and deals fresh enemies, coins and crates. Walls stay as drawn.
+ * the thrown ones and any shards, and deals fresh enemies, coins and crates.
+ * Walls stay as drawn.
  */
 function restart(): void {
   playerAlive = true;
@@ -773,6 +823,7 @@ function restart(): void {
   player.position = pushOutOfWalls(PLAYER_START, player.radius);
   followPlayer();
   flares.length = 0;
+  shards.length = 0;
   flaresHeld = FLARES_AT_START;
   flareCooldownLeft = 0;
   // Counts come from the sliders, as collecting coins and crates leaves fewer than set.
