@@ -23,10 +23,18 @@ export interface Light {
   height?: number;
   /** Overrides LightingParams.falloffRate for this light. */
   falloffRate?: number;
+  /**
+   * Distance across the floor at which the light is cut off, fading out over
+   * the last part; nothing beyond it is drawn, so a short range is cheap.
+   * Omitted for a light that reaches everywhere it can see.
+   */
+  range?: number;
 }
 
 /** Fraction of the cone's half-angle over which the beam edge fades. */
 const CONE_EDGE_SOFTNESS = 0.15;
+/** Fraction of a light's range over which it fades out. */
+const RANGE_EDGE_SOFTNESS = 0.4;
 
 const AMBIENT: Color = [0.02, 0.02, 0.05];
 /** Walls are white, but a little below 1 so bright lights don't flatten them. */
@@ -74,6 +82,7 @@ uniform vec3 disc_emission; // added once, in the ambient pass
 uniform vec2 cone_dir;
 uniform float cone_inner;
 uniform float cone_outer;
+uniform float light_range; // 0 for unlimited
 out vec4 frag_color;
 void main() {
   vec2 uv = world_pos / tile_size;
@@ -82,6 +91,9 @@ void main() {
   if (cone_outer > -1.0) {
     float c = dot(normalize(-d.xy), cone_dir);
     beam = smoothstep(cone_outer, cone_inner, c);
+  }
+  if (light_range > 0.0) {
+    beam *= smoothstep(light_range, light_range * ${1 - RANGE_EDGE_SOFTNESS}, length(d.xy));
   }
   vec3 base;
   vec3 n;
@@ -248,7 +260,7 @@ export class Renderer {
   private readonly lit: WebGLProgram;
   private readonly flat: WebGLProgram;
   private readonly litLocs: Record<
-    "scale" | "lightPos" | "lightColor" | "ambient" | "falloffRate" | "depth" | "surface" | "disc" | "discAlbedo" | "discEmission" | "coneDir" | "coneInner" | "coneOuter",
+    "scale" | "lightPos" | "lightColor" | "ambient" | "falloffRate" | "depth" | "surface" | "disc" | "discAlbedo" | "discEmission" | "coneDir" | "coneInner" | "coneOuter" | "lightRange",
     WebGLUniformLocation
   >;
   private readonly flatLocs: Record<"scale" | "color", WebGLUniformLocation>;
@@ -287,6 +299,7 @@ export class Renderer {
       coneDir: litLoc("cone_dir"),
       coneInner: litLoc("cone_inner"),
       coneOuter: litLoc("cone_outer"),
+      lightRange: litLoc("light_range"),
     };
     gl.useProgram(this.lit);
     gl.uniform1f(litLoc("tile_size"), TILE_SIZE);
@@ -348,7 +361,7 @@ export class Renderer {
    * the light matters: a distant light grazes the flat floor, but still
    * fully lights the near side of a dome or a bump in the floor texture.
    */
-  brightnessAt({ position, color, triangles, cone, height, falloffRate }: Light, point: Point): number {
+  brightnessAt({ position, color, triangles, cone, height, falloffRate, range }: Light, point: Point): number {
     if (!insideTriangles(point, triangles)) return 0;
     const dx = point[0] - position[0];
     const dy = point[1] - position[1];
@@ -360,6 +373,7 @@ export class Renderer {
       const c = flat > 0 ? (dx * cone.direction[0] + dy * cone.direction[1]) / flat : 1;
       beam = smoothstep(Math.cos(cone.halfAngle), Math.cos(cone.halfAngle * (1 - CONE_EDGE_SOFTNESS)), c);
     }
+    if (range !== undefined) beam *= smoothstep(range, range * (1 - RANGE_EDGE_SOFTNESS), Math.hypot(dx, dy));
     const falloff = 1 / (1 + (falloffRate ?? this.lighting.falloffRate) * distance);
     return Math.max(...color) * beam * falloff;
   }
@@ -421,7 +435,20 @@ export class Renderer {
     gl.blendFunc(gl.ONE, gl.ONE);
     gl.uniform3f(this.litLocs.ambient, 0, 0, 0);
     gl.stencilMask(SEEN);
-    for (const { position, color, triangles, cone, height, falloffRate } of lights) {
+    for (const { position, color, triangles, cone, height, falloffRate, range } of lights) {
+      if (Math.max(...color) <= 0) continue;
+      // The scissor clips every draw for this light, marking and clearing
+      // SEEN alike, to the square its range reaches.
+      if (range !== undefined) {
+        gl.enable(gl.SCISSOR_TEST);
+        const toPixels = (w: number, size: number) => ((w * scale + 1) / 2) * size;
+        const [x0, y0] = [toPixels(position[0] - range, this.canvas.width), toPixels(position[1] - range, this.canvas.height)];
+        const [x1, y1] = [toPixels(position[0] + range, this.canvas.width), toPixels(position[1] + range, this.canvas.height)];
+        gl.scissor(Math.floor(x0), Math.floor(y0), Math.ceil(x1 - x0) + 1, Math.ceil(y1 - y0) + 1);
+      } else {
+        gl.disable(gl.SCISSOR_TEST);
+      }
+      gl.uniform1f(this.litLocs.lightRange, range ?? 0);
       gl.uniform3f(this.litLocs.lightPos, position[0], position[1], height ?? this.lighting.lightHeight);
       gl.uniform1f(this.litLocs.falloffRate, falloffRate ?? this.lighting.falloffRate);
       gl.uniform3f(this.litLocs.lightColor, ...color);
@@ -442,6 +469,7 @@ export class Renderer {
       this.drawWalls(wallVerts);
       this.drawLitDiscs(litDiscs, gl.EQUAL, false);
     }
+    gl.disable(gl.SCISSOR_TEST);
     gl.stencilMask(0xff);
     gl.disable(gl.STENCIL_TEST);
     gl.disable(gl.BLEND);

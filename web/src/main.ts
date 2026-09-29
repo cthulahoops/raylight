@@ -194,6 +194,7 @@ let coinEmission: Color = [0, 0, 0];
 let coinGlowColor: Color = [0, 0, 0];
 let coinGlowHeight = 0;
 let coinGlowFalloff = 0;
+let coinGlowRange = 0; // kept short, as each coin's glow is drawn only within it
 let coinShimmer = 0; // fraction the shine and glow swing by
 let coinsCollected = 0;
 const coinsCollectedOutput = document.querySelector<HTMLOutputElement>("#coins-collected")!;
@@ -227,6 +228,7 @@ function updateCoins(seconds: number): void {
     light.color = [coinGlowColor[0] * k, coinGlowColor[1] * k, coinGlowColor[2] * k];
     light.height = coinGlowHeight;
     light.falloffRate = coinGlowFalloff;
+    light.range = coinGlowRange;
   }
 }
 
@@ -657,6 +659,7 @@ slider("enemy-threshold", (v) => (enemyLightThreshold = v));
 slider("coin-count", setCoinCount);
 slider("coin-glow-height", (v) => (coinGlowHeight = v));
 slider("coin-glow-falloff", (v) => (coinGlowFalloff = v));
+slider("coin-glow-range", (v) => (coinGlowRange = v));
 slider("coin-shimmer", (v) => (coinShimmer = v));
 slider("crate-count", setCrateCount);
 
