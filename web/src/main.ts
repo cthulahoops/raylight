@@ -17,8 +17,7 @@ function sweptLight(position: Point, color: Color): Light {
 const pointerLight = sweptLight([0, 0], [0, 0, 0]); // colour set from the controls below
 
 // Clicking or tapping sends the player towards that point, and arrow keys or
-// WASD drive them too. They carry a warm torch, aimed at the mouse when there
-// is one, and otherwise pointing the way they face.
+// WASD drive them too. They carry a warm torch pointing the way they face.
 const PLAYER_START: Point = [0, -300];
 const player: Disc = { position: PLAYER_START, radius: 25, color: [1, 1, 1] };
 // An enemy touching the player destroys them, taking their torch and glow with them.
@@ -284,15 +283,9 @@ function enemyDiscs({ body, heading }: Enemy): Disc[] {
   return [body, eye(1), eye(-1)];
 }
 
-let aimAtPointer = false; // set once a mouse moves over the canvas; touch has no hover to aim with
-
-/** Point the torch at the mouse, or the way the player faces; keeps its last heading if the mouse is on the player. */
+/** Point the torch the way the player faces. */
 function aimTorch(): void {
-  const [dx, dy] = aimAtPointer
-    ? [pointerLight.position[0] - player.position[0], pointerLight.position[1] - player.position[1]]
-    : [Math.cos(playerFacing), Math.sin(playerFacing)];
-  const len = Math.hypot(dx, dy);
-  if (len > 0) playerLight.cone!.direction = [dx / len, dy / len];
+  playerLight.cone!.direction = [Math.cos(playerFacing), Math.sin(playerFacing)];
 }
 
 function updateWalls(): void {
@@ -333,8 +326,6 @@ canvas.addEventListener("pointermove", (e) => {
   pointerLight.position = toWorld(e);
   pointerLight.triangles = visibilityTriangles(pointerLight.position, walls);
   if (canvas.hasPointerCapture(e.pointerId)) moveTarget = pointerLight.position;
-  aimAtPointer = e.pointerType === "mouse";
-  aimTorch();
 });
 
 // In the level editor, click once to start a wall, again to finish it.
@@ -391,8 +382,9 @@ function distanceFromPlayer([x, y]: Point): number {
 }
 
 /**
- * Walks the player the way the keys go, or turns them towards the move target
- * and walks them to it, slower the further they still have to turn, so a
+ * Turns the player towards the way the keys or the move target want to go.
+ * The keys move them that way at once, so the torch swings round after them;
+ * towards a target they walk slower the further they still have to turn, so a
  * sharp turn happens mostly on the spot.
  */
 function movePlayer(dt: number): void {
@@ -417,9 +409,10 @@ function movePlayer(dt: number): void {
   }
   const want = Math.atan2(dy, dx);
   const turn = Math.atan2(Math.sin(want - playerFacing), Math.cos(want - playerFacing)); // shortest way round
-  const maxTurn = moveTarget ? PLAYER_TURN_RATE * dt : Infinity; // the keys turn at once
+  const maxTurn = PLAYER_TURN_RATE * dt;
   playerFacing += Math.max(-maxTurn, Math.min(maxTurn, turn));
-  const distance = Math.min(remaining, PLAYER_SPEED * dt * Math.max(0, Math.cos(want - playerFacing)));
+  const slowdown = moveTarget ? Math.max(0, Math.cos(want - playerFacing)) : 1;
+  const distance = Math.min(remaining, PLAYER_SPEED * dt * slowdown);
   // Walls are only lines, so move in steps short enough that the player
   // can't pass through one between checks.
   const steps = Math.ceil(distance / (player.radius / 2));
@@ -451,11 +444,11 @@ function crosses(p: Point, q: Point, { start: a, end: b }: Segment): boolean {
   return side(p, q, a) !== side(p, q, b) && side(a, b, p) !== side(a, b, q);
 }
 
-// Space throws a flare towards the pointer, or as far as it can reach
-// towards it, if the player has one left and the last throw has cooled down. It arcs up and first lands after the flight time for that
-// distance, bouncing off walls on the way and off the floor a few times before
-// settling, and burns with a sputtering light that fades
-// out at the end. Enemies are drawn to it like any other light.
+// Space throws a flare as far as it can reach the way the player faces, if
+// they have one left and the last throw has cooled down. It arcs up and first
+// lands after the flight time for that distance, bouncing off walls on the way
+// and off the floor a few times before settling, and burns with a sputtering
+// light that fades out at the end. Enemies are drawn to it like any other light.
 interface Flare {
   position: Point;
   velocity: Point; // world units per second across the floor; zero once landed
@@ -494,15 +487,12 @@ function setFlaresHeld(count: number): void {
 }
 
 function throwFlare(): void {
-  const dx = pointerLight.position[0] - player.position[0];
-  const dy = pointerLight.position[1] - player.position[1];
-  const distance = Math.hypot(dx, dy);
-  if (!playerAlive || distance === 0 || flareSpeed === 0 || flaresHeld === 0 || flareCooldownLeft > 0) return;
+  if (!playerAlive || flareSpeed === 0 || flaresHeld === 0 || flareCooldownLeft > 0) return;
   setFlaresHeld(flaresHeld - 1);
   flareCooldownLeft = flareCooldown;
-  // Launched upwards just fast enough to land after covering the distance.
-  const flightTime = Math.min(distance, flareRange) / flareSpeed;
-  const velocity: Point = [(dx / distance) * flareSpeed, (dy / distance) * flareSpeed];
+  // Launched upwards just fast enough to land after covering the range.
+  const flightTime = flareRange / flareSpeed;
+  const velocity: Point = [Math.cos(playerFacing) * flareSpeed, Math.sin(playerFacing) * flareSpeed];
   const light: Light = { ...sweptLight(playerLight.position, [0, 0, 0]), height: FLARE_LIGHT_HEIGHT, falloffRate: 0.01 };
   const vz = (flareGravity * flightTime) / 2;
   flares.push({ position: player.position, velocity, z: 0, vz, age: 0, seed: Math.random() * 100, light });
