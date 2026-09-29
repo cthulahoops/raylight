@@ -68,6 +68,7 @@ uniform float falloff_rate;
 uniform int surface;
 uniform vec3 disc; // centre and radius of a lit disc
 uniform vec3 disc_albedo;
+uniform vec3 disc_emission; // added once, in the ambient pass
 // Beam cone: cos of the half-angle where the beam is full, and where it has
 // faded to nothing. cone_outer <= -1 means omnidirectional.
 uniform vec2 cone_dir;
@@ -100,7 +101,8 @@ void main() {
   }
   float falloff = 1.0 / (1.0 + falloff_rate * length(d));
   float lambert = max(dot(normalize(d), n), 0.0);
-  frag_color = vec4(base * (ambient + beam * falloff * lambert * light_color), 1.0);
+  vec3 emission = surface == ${SURFACE_DISC} ? disc_emission : vec3(0.0);
+  frag_color = vec4(base * (ambient + beam * falloff * lambert * light_color) + emission, 1.0);
 }`;
 
 const FLAT_VERTEX_SHADER = `#version 300 es
@@ -228,6 +230,8 @@ export interface Disc {
   color: Color;
   /** Shade the disc with the scene's lights, using `color` as its albedo; otherwise draw it flat on top. */
   lit?: boolean;
+  /** Light a lit disc gives off itself, on top of what the scene's lights show of it. */
+  emission?: Color;
 }
 
 export interface LightingParams {
@@ -244,7 +248,7 @@ export class Renderer {
   private readonly lit: WebGLProgram;
   private readonly flat: WebGLProgram;
   private readonly litLocs: Record<
-    "scale" | "lightPos" | "lightColor" | "ambient" | "falloffRate" | "depth" | "surface" | "disc" | "discAlbedo" | "coneDir" | "coneInner" | "coneOuter",
+    "scale" | "lightPos" | "lightColor" | "ambient" | "falloffRate" | "depth" | "surface" | "disc" | "discAlbedo" | "discEmission" | "coneDir" | "coneInner" | "coneOuter",
     WebGLUniformLocation
   >;
   private readonly flatLocs: Record<"scale" | "color", WebGLUniformLocation>;
@@ -279,6 +283,7 @@ export class Renderer {
       surface: litLoc("surface"),
       disc: litLoc("disc"),
       discAlbedo: litLoc("disc_albedo"),
+      discEmission: litLoc("disc_emission"),
       coneDir: litLoc("cone_dir"),
       coneInner: litLoc("cone_inner"),
       coneOuter: litLoc("cone_outer"),
@@ -359,15 +364,17 @@ export class Renderer {
     return Math.max(...color) * beam * falloff;
   }
 
-  private drawLitDiscs(discs: Disc[], depthFunc: GLenum): void {
+  /** Emission goes in only with the ambient pass, so the light passes don't add it again. */
+  private drawLitDiscs(discs: Disc[], depthFunc: GLenum, emit: boolean): void {
     const gl = this.gl;
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(depthFunc);
     gl.uniform1i(this.litLocs.surface, SURFACE_DISC);
-    discs.forEach(({ position, radius, color }, i) => {
+    discs.forEach(({ position, radius, color, emission }, i) => {
       gl.uniform1f(this.litLocs.depth, -(i + 1) / (discs.length + 1));
       gl.uniform3f(this.litLocs.disc, position[0], position[1], radius);
       gl.uniform3f(this.litLocs.discAlbedo, ...color);
+      gl.uniform3f(this.litLocs.discEmission, ...(emit && emission ? emission : ([0, 0, 0] as Color)));
       this.draw(circleFan(position, radius));
     });
     gl.uniform1f(this.litLocs.depth, 0);
@@ -403,7 +410,7 @@ export class Renderer {
     gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
     gl.uniform1i(this.litLocs.surface, SURFACE_WALL);
     this.drawWalls(wallVerts);
-    this.drawLitDiscs(litDiscs, gl.LESS);
+    this.drawLitDiscs(litDiscs, gl.LESS, true);
 
     // Each light adds its contribution over just the triangles it can see.
     // The sweep stops at wall centre lines, so the triangles reach over the
@@ -433,7 +440,7 @@ export class Renderer {
       gl.stencilFunc(gl.EQUAL, WALL | SEEN, WALL | SEEN);
       gl.stencilOp(gl.KEEP, gl.KEEP, gl.ZERO);
       this.drawWalls(wallVerts);
-      this.drawLitDiscs(litDiscs, gl.EQUAL);
+      this.drawLitDiscs(litDiscs, gl.EQUAL, false);
     }
     gl.stencilMask(0xff);
     gl.disable(gl.STENCIL_TEST);

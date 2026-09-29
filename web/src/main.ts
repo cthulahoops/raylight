@@ -176,8 +176,8 @@ function moveEnemy(enemy: Enemy, dt: number, lights: Light[]): void {
   if (!blocked) body.position = next;
 }
 
-// Gold coins to collect by walking over them. Each glows faintly with a
-// shimmering light of its own, so it shows in the dark and lights the floor
+// Gold coins to collect by walking over them. Each shines with a shimmering
+// light of its own, so it shows in the dark, and casts a glow on the floor
 // just around it. Enemies ignore the glow.
 interface Coin {
   body: Disc;
@@ -186,11 +186,13 @@ interface Coin {
 }
 const coins: Coin[] = []; // filled from the controls below
 const COIN_RADIUS = 12;
-// Albedo above 1 so the coin's own dim glow lights it bright gold.
-const COIN_COLOR: Color = [2.2, 1.9, 0.8];
+const COIN_COLOR: Color = [1, 0.8, 0.3];
+// The glow sits over the coin's centre, so it lights only the top of the
+// dome; emission makes the whole face shine. Both scale with the glow slider.
+const COIN_EMISSION: Color = [1.6, 1.25, 0.4];
 const COIN_GLOW_COLOR: Color = [1, 0.85, 0.45];
-const COIN_GLOW_HEIGHT = 20;
-const COIN_GLOW_FALLOFF = 0.03;
+const COIN_GLOW_HEIGHT = 30;
+const COIN_GLOW_FALLOFF = 0.012;
 let coinGlowBrightness = 0; // set from the controls below
 let coinsCollected = 0;
 const coinsCollectedOutput = document.querySelector<HTMLOutputElement>("#coins-collected")!;
@@ -217,9 +219,10 @@ function updateCoins(seconds: number): void {
       coinsCollectedOutput.value = String(coinsCollected);
     }
   }
-  for (const { seed, light } of coins) {
+  for (const { body, seed, light } of coins) {
     const k = coinGlowBrightness * (1 + 0.15 * Math.sin(seconds * 2.5 + seed));
     light.color = [COIN_GLOW_COLOR[0] * k, COIN_GLOW_COLOR[1] * k, COIN_GLOW_COLOR[2] * k];
+    body.emission = [COIN_EMISSION[0] * k, COIN_EMISSION[1] * k, COIN_EMISSION[2] * k];
   }
 }
 
