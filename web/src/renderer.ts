@@ -40,7 +40,8 @@ const SURFACE_DISC = 2;
 // plane, falls off with distance and shades the normal-mapped texture. Walls
 // use the same lighting on a plain white vertical face, turned towards the
 // light and taken at the light's height; only the side the light can see is
-// ever drawn lit. Lit discs are shaded as domes rising out of the floor.
+// ever drawn lit. Lit discs are shaded as domes rising out of the floor, or
+// as flat-topped boxes with bevelled edges.
 const LIT_VERTEX_SHADER = `#version 300 es
 in vec2 in_pos;
 in vec2 in_normal;
@@ -67,6 +68,7 @@ uniform vec3 ambient;
 uniform float falloff_rate;
 uniform int surface;
 uniform vec3 disc; // centre and radius of a lit disc
+uniform vec2 disc_box; // half-size of a box, or zero for a dome
 uniform vec3 disc_albedo;
 uniform vec3 disc_emission; // added once, in the ambient pass, dimming towards the rim
 // Beam cone: cos of the half-angle where the beam is full, and where it has
@@ -92,9 +94,14 @@ void main() {
     // floor level a close light would only graze the face and it would darken.
     d.z = 0.0;
   } else if (surface == ${SURFACE_DISC}) {
-    vec2 o = (world_pos - disc.xy) / disc.z;
     base = disc_albedo;
-    n = vec3(o, sqrt(max(0.0, 1.0 - dot(o, o))));
+    if (disc_box.x > 0.0) {
+      vec2 o = (world_pos - disc.xy) / disc_box;
+      n = normalize(vec3(sign(o) * smoothstep(0.7, 1.0, abs(o)), 1.0));
+    } else {
+      vec2 o = (world_pos - disc.xy) / disc.z;
+      n = vec3(o, sqrt(max(0.0, 1.0 - dot(o, o))));
+    }
   } else {
     base = texture(albedo, uv).rgb;
     n = normalize(2.0 * texture(normal_map, uv).rgb - 1.0);
@@ -209,6 +216,12 @@ export function circleFan(center: Point, radius: number, sides = 32): Float32Arr
   return Float32Array.from(verts);
 }
 
+/** An axis-aligned rectangle as two triangles. */
+function rectangle([cx, cy]: Point, [hx, hy]: Point): Float32Array {
+  const [x0, y0, x1, y1] = [cx - hx, cy - hy, cx + hx, cy + hy];
+  return Float32Array.from([x0, y0, x1, y0, x1, y1, x0, y0, x1, y1, x0, y1]);
+}
+
 /** Unit perpendicular of each wall, repeated for the six vertices of its quad. */
 function wallNormals(walls: Segment[]): Float32Array {
   const normals: number[] = [];
@@ -232,6 +245,12 @@ export interface Disc {
   lit?: boolean;
   /** Light a lit disc gives off itself, on top of what the scene's lights show of it. */
   emission?: Color;
+  /**
+   * Half-width and half-height: draws an axis-aligned box instead of a
+   * circle, lit ones flat-topped with bevelled edges. `radius` still serves
+   * for collisions.
+   */
+  box?: Point;
 }
 
 export interface LightingParams {
@@ -248,7 +267,7 @@ export class Renderer {
   private readonly lit: WebGLProgram;
   private readonly flat: WebGLProgram;
   private readonly litLocs: Record<
-    "scale" | "lightPos" | "lightColor" | "ambient" | "falloffRate" | "depth" | "surface" | "disc" | "discAlbedo" | "discEmission" | "coneDir" | "coneInner" | "coneOuter",
+    "scale" | "lightPos" | "lightColor" | "ambient" | "falloffRate" | "depth" | "surface" | "disc" | "discBox" | "discAlbedo" | "discEmission" | "coneDir" | "coneInner" | "coneOuter",
     WebGLUniformLocation
   >;
   private readonly flatLocs: Record<"scale" | "color", WebGLUniformLocation>;
@@ -282,6 +301,7 @@ export class Renderer {
       depth: litLoc("depth"),
       surface: litLoc("surface"),
       disc: litLoc("disc"),
+      discBox: litLoc("disc_box"),
       discAlbedo: litLoc("disc_albedo"),
       discEmission: litLoc("disc_emission"),
       coneDir: litLoc("cone_dir"),
@@ -370,12 +390,13 @@ export class Renderer {
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(depthFunc);
     gl.uniform1i(this.litLocs.surface, SURFACE_DISC);
-    discs.forEach(({ position, radius, color, emission }, i) => {
+    discs.forEach(({ position, radius, color, emission, box }, i) => {
       gl.uniform1f(this.litLocs.depth, -(i + 1) / (discs.length + 1));
       gl.uniform3f(this.litLocs.disc, position[0], position[1], radius);
+      gl.uniform2f(this.litLocs.discBox, ...(box ?? [0, 0]));
       gl.uniform3f(this.litLocs.discAlbedo, ...color);
       gl.uniform3f(this.litLocs.discEmission, ...(emit && emission ? emission : ([0, 0, 0] as Color)));
-      this.draw(circleFan(position, radius));
+      this.draw(box ? rectangle(position, box) : circleFan(position, radius));
     });
     gl.uniform1f(this.litLocs.depth, 0);
     gl.disable(gl.DEPTH_TEST);
@@ -453,10 +474,10 @@ export class Renderer {
       gl.uniform3f(this.flatLocs.color, 0.5, 0.5, 0.5);
       this.draw(wallQuads([pending]));
     }
-    for (const { position, radius, color, lit } of discs) {
+    for (const { position, radius, color, lit, box } of discs) {
       if (lit) continue;
       gl.uniform3f(this.flatLocs.color, ...color);
-      this.draw(circleFan(position, radius));
+      this.draw(box ? rectangle(position, box) : circleFan(position, radius));
     }
   }
 }

@@ -225,7 +225,8 @@ interface Crate {
   body: Disc;
 }
 const crates: Crate[] = []; // filled from the controls below
-const CRATE_RADIUS = 16;
+const CRATE_HALF_SIZE: Point = [16, 10];
+const CRATE_RADIUS = 14; // for pickup and spacing
 const CRATE_COLOR: Color = [0.55, 0.35, 0.18];
 // Albedo above 1 so any light on the crate shows its flares red.
 const CRATE_FLARE_COLOR: Color = [2.5, 0.4, 0.2];
@@ -236,7 +237,7 @@ function setCrateCount(count: number): void {
   while (crates.length < count) {
     const others = [...enemies.map((e) => e.body), ...coins.map((c) => c.body), ...crates.map((c) => c.body)];
     const position = randomClearPoint(2 * CRATE_RADIUS, others);
-    crates.push({ body: { position, radius: CRATE_RADIUS, color: CRATE_COLOR, lit: true } });
+    crates.push({ body: { position, radius: CRATE_RADIUS, box: CRATE_HALF_SIZE, color: CRATE_COLOR, lit: true } });
   }
 }
 
@@ -253,8 +254,8 @@ function updateCrates(): void {
 /** The crate plus the heads of its flares, in a row across the middle. */
 function crateDiscs({ body }: Crate): Disc[] {
   const [x, y] = body.position;
-  const head = (dx: number): Disc => ({ position: [x + dx, y], radius: 0.22 * CRATE_RADIUS, color: CRATE_FLARE_COLOR, lit: true });
-  return [body, ...[-0.5, 0, 0.5].map((k) => head(k * CRATE_RADIUS))];
+  const head = (dx: number): Disc => ({ position: [x + dx, y], radius: 0.3 * CRATE_HALF_SIZE[1], color: CRATE_FLARE_COLOR, lit: true });
+  return [body, ...[-0.5, 0, 0.5].map((k) => head(k * CRATE_HALF_SIZE[0]))];
 }
 
 function touchesPlayer({ position: [x, y], radius }: Disc): boolean {
