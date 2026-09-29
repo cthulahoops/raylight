@@ -6,14 +6,17 @@
     <title>raylight</title>
     <style>
       html, body { margin: 0; height: 100%; background: #111; color: #ccc; font: 14px system-ui, sans-serif; }
-      body { display: flex; align-items: center; }
+      body { display: flex; align-items: center; justify-content: center; }
       canvas { --size: min(100vw - 18rem, 100vh); flex: none; width: var(--size); height: var(--size); image-rendering: pixelated; touch-action: none; }
+      /* With the settings hidden, the canvas fills the screen. */
+      body:has(#controls[hidden]) canvas { --size: min(100vw, 100vh); }
+      #settings-toggle { position: fixed; top: 0.5rem; right: 0.5rem; z-index: 1; }
       /*
        * The controls fill the space beside the canvas, in as many columns as
        * fit. The columns sit inside the scrolling form, as columns of a fixed
        * height would overflow sideways rather than scroll.
        */
-      #controls { flex: 1; align-self: stretch; overflow-y: auto; box-sizing: border-box; padding: 0.5rem 1rem; }
+      #controls { flex: 1; align-self: stretch; overflow-y: auto; box-sizing: border-box; padding: 2.5rem 1rem 0.5rem; /* room for the Settings button */ }
       #sections { columns: 16rem; column-gap: 0.75rem; }
       #sections > * { break-inside: avoid; margin-bottom: 0.5rem; }
       #sections > button { width: 100%; }
@@ -30,7 +33,8 @@
   </head>
   <body>
     <canvas id="scene" width="1024" height="1024"></canvas>
-    <form id="controls" autocomplete="off">
+    <button type="button" id="settings-toggle">Settings</button>
+    <form id="controls" autocomplete="off" hidden>
       <div id="sections">
         <details open>
           <summary>Lighting <button type="button" class="copy">Copy</button></summary>

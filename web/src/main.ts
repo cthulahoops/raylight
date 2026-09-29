@@ -16,8 +16,9 @@ function sweptLight(position: Point, color: Color): Light {
 // A debugging light that follows the pointer; off unless turned up in the controls.
 const pointerLight = sweptLight([0, 0], [0, 0, 0]); // colour set from the controls below
 
-// Clicking or tapping sends the player towards that point (arrow keys or WASD
-// drive them too). They carry a warm torch pointing the way they face.
+// Clicking or tapping sends the player towards that point, and arrow keys or
+// WASD drive them too. They carry a warm torch, aimed at the mouse when there
+// is one, and otherwise pointing the way they face.
 const PLAYER_START: Point = [0, -300];
 const player: Disc = { position: PLAYER_START, radius: 25, color: [1, 1, 1] };
 // An enemy touching the player destroys them, taking their torch and glow with them.
@@ -283,9 +284,15 @@ function enemyDiscs({ body, heading }: Enemy): Disc[] {
   return [body, eye(1), eye(-1)];
 }
 
-/** Point the torch the way the player faces. */
+let aimAtPointer = false; // set once a mouse moves over the canvas; touch has no hover to aim with
+
+/** Point the torch at the mouse, or the way the player faces; keeps its last heading if the mouse is on the player. */
 function aimTorch(): void {
-  playerLight.cone!.direction = [Math.cos(playerFacing), Math.sin(playerFacing)];
+  const [dx, dy] = aimAtPointer
+    ? [pointerLight.position[0] - player.position[0], pointerLight.position[1] - player.position[1]]
+    : [Math.cos(playerFacing), Math.sin(playerFacing)];
+  const len = Math.hypot(dx, dy);
+  if (len > 0) playerLight.cone!.direction = [dx / len, dy / len];
 }
 
 function updateWalls(): void {
@@ -326,6 +333,8 @@ canvas.addEventListener("pointermove", (e) => {
   pointerLight.position = toWorld(e);
   pointerLight.triangles = visibilityTriangles(pointerLight.position, walls);
   if (canvas.hasPointerCapture(e.pointerId)) moveTarget = pointerLight.position;
+  aimAtPointer = e.pointerType === "mouse";
+  aimTorch();
 });
 
 // In the level editor, click once to start a wall, again to finish it.
@@ -382,8 +391,8 @@ function distanceFromPlayer([x, y]: Point): number {
 }
 
 /**
- * Turns the player towards the way the keys or the move target want to go
- * and walks them that way, slower the further they still have to turn, so a
+ * Walks the player the way the keys go, or turns them towards the move target
+ * and walks them to it, slower the further they still have to turn, so a
  * sharp turn happens mostly on the spot.
  */
 function movePlayer(dt: number): void {
@@ -408,7 +417,7 @@ function movePlayer(dt: number): void {
   }
   const want = Math.atan2(dy, dx);
   const turn = Math.atan2(Math.sin(want - playerFacing), Math.cos(want - playerFacing)); // shortest way round
-  const maxTurn = PLAYER_TURN_RATE * dt;
+  const maxTurn = moveTarget ? PLAYER_TURN_RATE * dt : Infinity; // the keys turn at once
   playerFacing += Math.max(-maxTurn, Math.min(maxTurn, turn));
   const distance = Math.min(remaining, PLAYER_SPEED * dt * Math.max(0, Math.cos(want - playerFacing)));
   // Walls are only lines, so move in steps short enough that the player
@@ -709,6 +718,13 @@ function restart(): void {
   coinsCollected = 0;
   coinsCollectedOutput.value = "0";
 }
+
+const settingsToggle = document.querySelector<HTMLButtonElement>("#settings-toggle")!;
+settingsToggle.addEventListener("click", () => {
+  const controls = document.querySelector<HTMLFormElement>("#controls")!;
+  controls.hidden = !controls.hidden;
+  settingsToggle.blur(); // so Space throws a flare rather than pressing it again
+});
 
 const restartButton = document.querySelector<HTMLButtonElement>("#restart")!;
 restartButton.addEventListener("click", () => {
