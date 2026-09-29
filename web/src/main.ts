@@ -395,7 +395,10 @@ const heldKeys = new Set<string>();
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") wallStart = null;
   if (e.code === "Space") {
-    if (!e.repeat) throwFlare();
+    if (!e.repeat) {
+      if (isGameOver()) restart();
+      else throwFlare();
+    }
     e.preventDefault();
   }
   if (e.code in MOVE_KEYS && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -673,7 +676,16 @@ function updateHud(): void {
   flaresHeldOutput.classList.toggle("cooling", flaresHeld > 0 && flareCooldownLeft > 0);
   const coinsText = `${coinsCollected}/${coinsCollected + coins.length}`;
   if (coinsCollectedOutput.value !== coinsText) coinsCollectedOutput.value = coinsText;
+  gameOverNotice.hidden = !isGameOver();
 }
+
+// Once the dead player's torch has sputtered out, the game is over until
+// Space, or a tap on the notice, starts it again.
+const gameOverNotice = document.querySelector<HTMLDivElement>("#game-over")!;
+function isGameOver(): boolean {
+  return !playerAlive && deathAge >= TORCH_DEATH_TIME;
+}
+gameOverNotice.addEventListener("click", restart);
 
 // Flares sputter and things move every frame, so render continuously rather than on input.
 let lastTime: DOMHighResTimeStamp | null = null;

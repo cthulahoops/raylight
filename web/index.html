@@ -19,6 +19,11 @@
       #flares-held.cooling { color: #888; }
       #flares-held.empty { color: #f66; }
       #coins-collected::before { width: 0.9rem; height: 0.9rem; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff1b0, #ffcc4d 45%, #b8860b); }
+      /* Covers the game once the player's torch has gone out. */
+      #game-over { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; background: #000a; color: #eee; cursor: pointer; }
+      #game-over[hidden] { display: none; }
+      #game-over h1 { margin: 0; font: 700 48px system-ui, sans-serif; letter-spacing: 0.1em; color: #f66; }
+      #game-over p { margin: 0; font-size: 18px; }
       #settings-toggle { position: fixed; top: 0.5rem; right: 0.5rem; z-index: 1; }
       #fps { position: fixed; top: 0.5rem; left: 0.5rem; z-index: 1; padding: 0.1rem 0.4rem; background: #000a; font: 12px ui-monospace, monospace; pointer-events: none; }
       /*
@@ -47,6 +52,10 @@
       <div id="hud">
         <output id="flares-held" title="Flares held (Space to throw)"></output>
         <output id="coins-collected" title="Coins collected"></output>
+      </div>
+      <div id="game-over" hidden>
+        <h1>GAME OVER</h1>
+        <p>Press Space to play again</p>
       </div>
     </div>
     <button type="button" id="settings-toggle">Settings</button>
