@@ -39,6 +39,10 @@ const PLAYER_GLOW_COLOR: Color = [1, 0.85, 0.6];
 let torchColor: Color = [0, 0, 0];
 let glowColor: Color = [0, 0, 0];
 let beamHalfAngle = 0; // radians
+// Collecting a coin flares the glow bright gold, fading back to normal.
+const COIN_GLOW_COLOR: Color = [3, 2.2, 0.6];
+const COIN_GLOW_TIME = 0.4; // seconds to fade back
+let coinGlowAge = Infinity; // seconds since the last coin was collected
 
 /** The point of the segment nearest to p. */
 function closestPoint([px, py]: Point, { start: [x1, y1], end: [x2, y2] }: Segment): Point {
@@ -215,6 +219,7 @@ function updateCoins(seconds: number): void {
     if (touchesPlayer(coins[i].body)) {
       coins.splice(i, 1);
       coinsCollected++;
+      coinGlowAge = 0;
     }
   }
   for (const { body, seed } of coins) {
@@ -276,9 +281,10 @@ function killPlayer(): void {
 }
 
 /**
- * Sets the torch and glow from the controls, or, once the player has died,
- * dims them over TORCH_DEATH_TIME with ever more frequent dropouts and
- * narrows the beam as it goes. Returns whether they're still giving light.
+ * Sets the torch and glow from the controls, the glow flashing gold after a
+ * coin is collected, or, once the player has died, dims them over
+ * TORCH_DEATH_TIME with ever more frequent dropouts and narrows the beam as
+ * it goes. Returns whether they're still giving light.
  */
 function updateTorch(dt: number, seconds: number): boolean {
   let k = 1;
@@ -292,7 +298,10 @@ function updateTorch(dt: number, seconds: number): boolean {
     beam = 0.4 + 0.6 * left;
   }
   playerLight.color = [torchColor[0] * k, torchColor[1] * k, torchColor[2] * k];
-  playerGlow.color = [glowColor[0] * k, glowColor[1] * k, glowColor[2] * k];
+  coinGlowAge += dt;
+  const gold = Math.max(0, 1 - coinGlowAge / COIN_GLOW_TIME) ** 2; // quick at first, easing back to normal
+  const glow = (i: number) => (glowColor[i] + (COIN_GLOW_COLOR[i] - glowColor[i]) * gold) * k;
+  playerGlow.color = [glow(0), glow(1), glow(2)];
   playerLight.cone!.halfAngle = beamHalfAngle * beam;
   return true;
 }
@@ -846,6 +855,7 @@ function restart(): void {
   setCoinCount(input("coin-count").valueAsNumber);
   setCrateCount(input("crate-count").valueAsNumber);
   coinsCollected = 0;
+  coinGlowAge = Infinity;
 }
 
 const settingsToggle = document.querySelector<HTMLButtonElement>("#settings-toggle")!;
