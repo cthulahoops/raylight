@@ -190,7 +190,6 @@ let coinColor: Color = [0, 0, 0];
 let coinEmission: Color = [0, 0, 0];
 let coinShimmer = 0; // fraction the shine swings by
 let coinsCollected = 0;
-const coinsCollectedOutput = document.querySelector<HTMLOutputElement>("#coins-collected")!;
 
 /** Adds or removes coins to reach `count`; new ones spawn clear of walls, the player, enemies, crates and each other. */
 function setCoinCount(count: number): void {
@@ -208,7 +207,6 @@ function updateCoins(seconds: number): void {
     if (touchesPlayer(coins[i].body)) {
       coins.splice(i, 1);
       coinsCollected++;
-      coinsCollectedOutput.value = String(coinsCollected);
     }
   }
   for (const { body, seed } of coins) {
@@ -246,7 +244,7 @@ function updateCrates(): void {
   for (let i = crates.length - 1; i >= 0 && playerAlive; i--) {
     if (touchesPlayer(crates[i].body)) {
       crates.splice(i, 1);
-      setFlaresHeld(flaresHeld + FLARES_PER_CRATE);
+      flaresHeld += FLARES_PER_CRATE;
     }
   }
 }
@@ -474,16 +472,10 @@ const FLARES_AT_START = 3;
 const FLARES_PER_CRATE = 3;
 let flaresHeld = FLARES_AT_START;
 let flareCooldownLeft = 0; // seconds until the next throw
-const flaresHeldOutput = document.querySelector<HTMLOutputElement>("#flares-held")!;
-
-function setFlaresHeld(count: number): void {
-  flaresHeld = count;
-  flaresHeldOutput.value = String(count);
-}
 
 function throwFlare(): void {
   if (!playerAlive || flareSpeed === 0 || flaresHeld === 0 || flareCooldownLeft > 0) return;
-  setFlaresHeld(flaresHeld - 1);
+  flaresHeld--;
   flareCooldownLeft = flareCooldown;
   // Launched upwards just fast enough to land after covering the range.
   const flightTime = flareRange / flareSpeed;
@@ -578,6 +570,19 @@ function countFrame(start: DOMHighResTimeStamp): void {
   [fpsSince, fpsFrames, fpsBusy] = [now, 0, 0];
 }
 
+// The HUD counts flares held, greyed while cooling down between throws, and
+// coins collected out of all there were. Only changed text is written.
+const flaresHeldOutput = document.querySelector<HTMLOutputElement>("#flares-held")!;
+const coinsCollectedOutput = document.querySelector<HTMLOutputElement>("#coins-collected")!;
+function updateHud(): void {
+  const flaresText = String(flaresHeld);
+  if (flaresHeldOutput.value !== flaresText) flaresHeldOutput.value = flaresText;
+  flaresHeldOutput.classList.toggle("empty", flaresHeld === 0);
+  flaresHeldOutput.classList.toggle("cooling", flaresHeld > 0 && flareCooldownLeft > 0);
+  const coinsText = `${coinsCollected}/${coinsCollected + coins.length}`;
+  if (coinsCollectedOutput.value !== coinsText) coinsCollectedOutput.value = coinsText;
+}
+
 // Flares sputter and things move every frame, so render continuously rather than on input.
 let lastTime: DOMHighResTimeStamp | null = null;
 function draw(time: DOMHighResTimeStamp): void {
@@ -601,6 +606,7 @@ function draw(time: DOMHighResTimeStamp): void {
     ...flares.map(flareDisc),
   ];
   renderer.render(walls, lights, pending, discs);
+  updateHud();
   countFrame(start);
   requestAnimationFrame(draw);
 }
@@ -721,7 +727,7 @@ function restart(): void {
   player.position = pushOutOfWalls(PLAYER_START, player.radius);
   followPlayer();
   flares.length = 0;
-  setFlaresHeld(FLARES_AT_START);
+  flaresHeld = FLARES_AT_START;
   flareCooldownLeft = 0;
   // Counts come from the sliders, as collecting coins and crates leaves fewer than set.
   enemies.length = 0;
@@ -731,7 +737,6 @@ function restart(): void {
   setCoinCount(input("coin-count").valueAsNumber);
   setCrateCount(input("crate-count").valueAsNumber);
   coinsCollected = 0;
-  coinsCollectedOutput.value = "0";
 }
 
 const settingsToggle = document.querySelector<HTMLButtonElement>("#settings-toggle")!;

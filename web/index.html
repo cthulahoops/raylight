@@ -7,9 +7,18 @@
     <style>
       html, body { margin: 0; height: 100%; background: #111; color: #ccc; font: 14px system-ui, sans-serif; }
       body { display: flex; align-items: center; justify-content: center; }
-      canvas { --size: min(100vw - 18rem, 100vh); flex: none; width: var(--size); height: var(--size); image-rendering: pixelated; touch-action: none; }
-      /* With the settings hidden, the canvas fills the screen. */
-      body:has(#controls[hidden]) canvas { --size: min(100vw, 100vh); }
+      #game { --size: min(100vw - 18rem, 100vh); flex: none; position: relative; width: var(--size); height: var(--size); }
+      /* With the settings hidden, the game fills the screen. */
+      body:has(#controls[hidden]) #game { --size: min(100vw, 100vh); }
+      canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; touch-action: none; }
+      /* Counters for what the player holds, over the bottom left of the game. */
+      #hud { position: absolute; left: 0.75rem; bottom: 0.75rem; display: flex; gap: 0.5rem; pointer-events: none; }
+      #hud output { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.75rem 0.25rem 0.5rem; border-radius: 1rem; background: #000b; color: #eee; font: 600 18px ui-monospace, monospace; }
+      #hud output::before { content: ""; flex: none; }
+      #flares-held::before { width: 0.35rem; height: 1rem; border-radius: 1px; background: linear-gradient(#ffb080 0 25%, #ff4d26 25%); transform: rotate(20deg); }
+      #flares-held.cooling { color: #888; }
+      #flares-held.empty { color: #f66; }
+      #coins-collected::before { width: 0.9rem; height: 0.9rem; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff1b0, #ffcc4d 45%, #b8860b); }
       #settings-toggle { position: fixed; top: 0.5rem; right: 0.5rem; z-index: 1; }
       #fps { position: fixed; top: 0.5rem; left: 0.5rem; z-index: 1; padding: 0.1rem 0.4rem; background: #000a; font: 12px ui-monospace, monospace; pointer-events: none; }
       /*
@@ -33,7 +42,13 @@
     </style>
   </head>
   <body>
-    <canvas id="scene" width="1024" height="1024"></canvas>
+    <div id="game">
+      <canvas id="scene" width="1024" height="1024"></canvas>
+      <div id="hud">
+        <output id="flares-held" title="Flares held (Space to throw)"></output>
+        <output id="coins-collected" title="Coins collected"></output>
+      </div>
+    </div>
     <button type="button" id="settings-toggle">Settings</button>
     <output id="fps"></output>
     <form id="controls" autocomplete="off" hidden>
@@ -70,7 +85,6 @@
         </details>
         <details open>
           <summary>Flares <button type="button" class="copy">Copy</button></summary>
-          <label>Held <output id="flares-held">3</output></label>
           <label>Crates <output for="crate-count"></output>
             <input id="crate-count" type="range" min="0" max="15" step="1" value="4">
           </label>
@@ -122,7 +136,6 @@
         </details>
         <details open>
           <summary>Gold <button type="button" class="copy">Copy</button></summary>
-          <label>Collected <output id="coins-collected">0</output></label>
           <label>Count <output for="coin-count"></output>
             <input id="coin-count" type="range" min="0" max="30" step="1" value="20">
           </label>
