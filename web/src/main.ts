@@ -176,26 +176,19 @@ function moveEnemy(enemy: Enemy, dt: number, lights: Light[]): void {
   if (!blocked) body.position = next;
 }
 
-// Gold coins to collect by walking over them. Each shines with a shimmering
-// light of its own, so it shows in the dark, and casts a glow on the floor
-// just around it. Enemies ignore the glow.
+// Gold coins to collect by walking over them. Each shines with a shimmer of
+// its own (emission), so it shows in the dark, but lights nothing else: a
+// light per coin cost a whole light pass each.
 interface Coin {
   body: Disc;
   seed: number; // keeps coins' shimmer out of step
-  light: Light;
 }
 const coins: Coin[] = []; // filled from the controls below
 const COIN_RADIUS = 12;
-// The glow sits over the coin's centre, so it lights only the top of the
-// dome and the floor round it; the shine (emission) makes the whole face
-// glow. All set from the controls below and applied to every coin each frame.
+// Set from the controls below and applied to every coin each frame.
 let coinColor: Color = [0, 0, 0];
 let coinEmission: Color = [0, 0, 0];
-let coinGlowColor: Color = [0, 0, 0];
-let coinGlowHeight = 0;
-let coinGlowFalloff = 0;
-let coinGlowRange = 0; // kept short, as each coin's glow is drawn only within it
-let coinShimmer = 0; // fraction the shine and glow swing by
+let coinShimmer = 0; // fraction the shine swings by
 let coinsCollected = 0;
 const coinsCollectedOutput = document.querySelector<HTMLOutputElement>("#coins-collected")!;
 
@@ -205,10 +198,7 @@ function setCoinCount(count: number): void {
   while (coins.length < count) {
     const others = [...enemies.map((e) => e.body), ...coins.map((c) => c.body), ...crates.map((c) => c.body)];
     const clear = randomClearPoint(3 * COIN_RADIUS, others);
-    // Integer coordinates, as the sweep needs them for exact tie-breaking.
-    const position: Point = [Math.round(clear[0]), Math.round(clear[1])];
-    const light = sweptLight(position, [0, 0, 0]);
-    coins.push({ body: { position, radius: COIN_RADIUS, color: coinColor, lit: true }, seed: Math.random() * 100, light });
+    coins.push({ body: { position: clear, radius: COIN_RADIUS, color: coinColor, lit: true }, seed: Math.random() * 100 });
   }
 }
 
@@ -221,14 +211,10 @@ function updateCoins(seconds: number): void {
       coinsCollectedOutput.value = String(coinsCollected);
     }
   }
-  for (const { body, seed, light } of coins) {
+  for (const { body, seed } of coins) {
     const k = 1 + coinShimmer * Math.sin(seconds * 2.5 + seed);
     body.color = coinColor;
     body.emission = [coinEmission[0] * k, coinEmission[1] * k, coinEmission[2] * k];
-    light.color = [coinGlowColor[0] * k, coinGlowColor[1] * k, coinGlowColor[2] * k];
-    light.height = coinGlowHeight;
-    light.falloffRate = coinGlowFalloff;
-    light.range = coinGlowRange;
   }
 }
 
@@ -304,7 +290,6 @@ function updateWalls(): void {
   }
   playerGlow.triangles = playerLight.triangles;
   for (const flare of flares) flare.light.triangles = visibilityTriangles(flare.light.position, walls);
-  for (const coin of coins) coin.light.triangles = visibilityTriangles(coin.light.position, walls);
 }
 
 let wallStart: Point | null = null; // set after the first click of a new wall
@@ -614,7 +599,7 @@ function draw(time: DOMHighResTimeStamp): void {
     ...enemies.flatMap(enemyDiscs),
     ...flares.map(flareDisc),
   ];
-  renderer.render(walls, [...lights, ...coins.map((c) => c.light)], pending, discs);
+  renderer.render(walls, lights, pending, discs);
   countFrame(start);
   requestAnimationFrame(draw);
 }
@@ -657,9 +642,6 @@ slider("enemy-avoid-range", (v) => (enemyAvoidRange = v));
 slider("enemy-avoid-strength", (v) => (enemyAvoidStrength = v));
 slider("enemy-threshold", (v) => (enemyLightThreshold = v));
 slider("coin-count", setCoinCount);
-slider("coin-glow-height", (v) => (coinGlowHeight = v));
-slider("coin-glow-falloff", (v) => (coinGlowFalloff = v));
-slider("coin-glow-range", (v) => (coinGlowRange = v));
 slider("coin-shimmer", (v) => (coinShimmer = v));
 slider("crate-count", setCrateCount);
 
@@ -690,7 +672,6 @@ colorControl("pointer-color", "pointer-intensity", (c) => (pointerLight.color = 
 colorControl("torch-color", "torch-brightness", (c) => (playerLight.color = c));
 colorControl("flare-color", "flare-brightness", (c) => (flareColor = c));
 colorControl("coin-emission-color", "coin-emission", (c) => (coinEmission = c));
-colorControl("coin-glow-color", "coin-glow", (c) => (coinGlowColor = c));
 colorPicker("coin-color", (c) => (coinColor = c));
 
 /** Copies text, falling back to a hidden textarea where the Clipboard API is missing (plain http). */
