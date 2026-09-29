@@ -574,9 +574,26 @@ function flareDisc(flare: Flare): Disc {
   return { position: flare.position, radius, color: [1, 0.3 + 0.6 * k, 0.2 + 0.5 * k] };
 }
 
+// Frame rate, and the average time our code took per frame, over each half
+// second. The frame rate tops out at the display's refresh rate; the time is
+// only what the CPU spends, as the GPU draws after the frame is handed over.
+const fpsOutput = document.querySelector<HTMLOutputElement>("#fps")!;
+let fpsSince = performance.now();
+let fpsFrames = 0;
+let fpsBusy = 0; // ms
+function countFrame(start: DOMHighResTimeStamp): void {
+  const now = performance.now();
+  fpsFrames++;
+  fpsBusy += now - start;
+  if (now - fpsSince < 500) return;
+  fpsOutput.value = `${Math.round((fpsFrames * 1000) / (now - fpsSince))} fps · ${(fpsBusy / fpsFrames).toFixed(1)} ms`;
+  [fpsSince, fpsFrames, fpsBusy] = [now, 0, 0];
+}
+
 // Flares sputter and things move every frame, so render continuously rather than on input.
 let lastTime: DOMHighResTimeStamp | null = null;
 function draw(time: DOMHighResTimeStamp): void {
+  const start = performance.now();
   const seconds = time / 1000;
   const dt = lastTime === null ? 0 : Math.min(seconds - lastTime / 1000, 0.1); // cap after a paused tab
   movePlayer(dt);
@@ -596,6 +613,7 @@ function draw(time: DOMHighResTimeStamp): void {
     ...flares.map(flareDisc),
   ];
   renderer.render(walls, [...lights, ...coins.map((c) => c.light)], pending, discs);
+  countFrame(start);
   requestAnimationFrame(draw);
 }
 
