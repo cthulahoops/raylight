@@ -7,7 +7,7 @@
     <style>
       html, body { margin: 0; height: 100%; background: #111; color: #ccc; font: 14px system-ui, sans-serif; }
       body { display: flex; align-items: center; }
-      canvas { --size: min(100vw - 18rem, 100vh); flex: none; width: var(--size); height: var(--size); image-rendering: pixelated; }
+      canvas { --size: min(100vw - 18rem, 100vh); flex: none; width: var(--size); height: var(--size); image-rendering: pixelated; touch-action: none; }
       /*
        * The controls fill the space beside the canvas, in as many columns as
        * fit. The columns sit inside the scrolling form, as columns of a fixed
@@ -128,6 +128,12 @@
           </label>
           <label>Intensity <output for="pointer-intensity"></output>
             <input id="pointer-intensity" type="range" min="0" max="10" step="0.1" value="0">
+          </label>
+        </details>
+        <details open>
+          <summary>Level editor</summary>
+          <label>Click to draw walls instead of moving
+            <input id="level-editor" type="checkbox">
           </label>
         </details>
         <button type="button" id="restart">Restart</button>
