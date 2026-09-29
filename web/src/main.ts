@@ -20,17 +20,24 @@ const pointerLight = sweptLight([0, 0], [0, 0, 0]); // colour set from the contr
 // WASD drive them too. They carry a warm torch pointing the way they face.
 const PLAYER_START: Point = [0, -300];
 const player: Disc = { position: PLAYER_START, radius: 25, color: [1, 1, 1] };
-// An enemy touching the player destroys them, taking their torch and glow with them.
+// An enemy touching the player destroys them. Their torch and glow stay
+// where they fell, sputtering out.
 let playerAlive = true;
+let deathAge = 0; // seconds since the player died
+const TORCH_DEATH_TIME = 1.5; // seconds for the torch to sputter out
 const playerLight: Light = {
-  ...sweptLight(player.position, [0, 0, 0]), // colour set from the controls below
-  cone: { direction: [0, 1], halfAngle: 0 }, // width set from the controls below
+  ...sweptLight(player.position, [0, 0, 0]), // colour set each frame from torchColor
+  cone: { direction: [0, 1], halfAngle: 0 }, // width set each frame from beamHalfAngle
 };
 // A dim, low glow with quick falloff that lights just the player's
-// surroundings. It shares the torch's position and sweep; colour, height and
-// falloff are set from the controls below.
+// surroundings. It shares the torch's position and sweep; height and falloff
+// are set from the controls below, and colour each frame from glowColor.
 const playerGlow: Light = { ...playerLight, cone: undefined };
 const PLAYER_GLOW_COLOR: Color = [1, 0.85, 0.6];
+// Set from the controls below.
+let torchColor: Color = [0, 0, 0];
+let glowColor: Color = [0, 0, 0];
+let beamHalfAngle = 0; // radians
 
 /** The point of the segment nearest to p. */
 function closestPoint([px, py]: Point, { start: [x1, y1], end: [x2, y2] }: Segment): Point {
@@ -258,6 +265,33 @@ function crateDiscs({ body }: Crate): Disc[] {
 
 function touchesPlayer({ position: [x, y], radius }: Disc): boolean {
   return Math.hypot(player.position[0] - x, player.position[1] - y) < player.radius + radius;
+}
+
+function killPlayer(): void {
+  playerAlive = false;
+  deathAge = 0;
+}
+
+/**
+ * Sets the torch and glow from the controls, or, once the player has died,
+ * dims them over TORCH_DEATH_TIME with ever more frequent dropouts and
+ * narrows the beam as it goes. Returns whether they're still giving light.
+ */
+function updateTorch(dt: number, seconds: number): boolean {
+  let k = 1;
+  let beam = 1;
+  if (!playerAlive) {
+    deathAge += dt;
+    const left = 1 - deathAge / TORCH_DEATH_TIME;
+    if (left <= 0) return false;
+    const dropout = Math.random() < 0.6 * (1 - left) ? 0.15 : 1;
+    k = left * sputter(seconds, 0) * dropout;
+    beam = 0.4 + 0.6 * left;
+  }
+  playerLight.color = [torchColor[0] * k, torchColor[1] * k, torchColor[2] * k];
+  playerGlow.color = [glowColor[0] * k, glowColor[1] * k, glowColor[2] * k];
+  playerLight.cone!.halfAngle = beamHalfAngle * beam;
+  return true;
 }
 
 // Albedo above 1 so even dim light pushes the eyes to full red.
@@ -590,13 +624,14 @@ function draw(time: DOMHighResTimeStamp): void {
   const seconds = time / 1000;
   const dt = lastTime === null ? 0 : Math.min(seconds - lastTime / 1000, 0.1); // cap after a paused tab
   movePlayer(dt);
+  const torchLit = updateTorch(dt, seconds);
   updateFlares(dt, seconds);
   updateCoins(seconds);
   updateCrates();
   lastTime = time;
-  const lights = [pointerLight, ...(playerAlive ? [playerLight, playerGlow] : []), ...flares.map((f) => f.light)];
+  const lights = [pointerLight, ...(torchLit ? [playerLight, playerGlow] : []), ...flares.map((f) => f.light)];
   for (const enemy of enemies) moveEnemy(enemy, dt, lights);
-  if (enemies.some((e) => touchesPlayer(e.body))) playerAlive = false;
+  if (playerAlive && enemies.some((e) => touchesPlayer(e.body))) killPlayer();
   const pending = wallStart ? segment(wallStart, pointerLight.position) : null;
   const discs = [
     ...coins.map((c) => c.body),
@@ -631,11 +666,11 @@ slider("light-height", (v) => (renderer.lighting.lightHeight = v));
 slider("falloff-rate", (v) => (renderer.lighting.falloffRate = v));
 slider("glow-brightness", (v) => {
   const [r, g, b] = PLAYER_GLOW_COLOR;
-  playerGlow.color = [r * v, g * v, b * v];
+  glowColor = [r * v, g * v, b * v];
 });
 slider("glow-height", (v) => (playerGlow.height = v));
 slider("glow-falloff", (v) => (playerGlow.falloffRate = v));
-slider("beam-width", (v) => (playerLight.cone!.halfAngle = (v / 2) * (Math.PI / 180))); // degrees, edge to edge
+slider("beam-width", (v) => (beamHalfAngle = (v / 2) * (Math.PI / 180))); // degrees, edge to edge
 slider("flare-burn-time", (v) => (flareBurnTime = v));
 slider("flare-range", (v) => (flareRange = v));
 slider("flare-speed", (v) => (flareSpeed = v));
@@ -676,7 +711,7 @@ function colorControl(colorId: string, brightnessId: string, set: (color: Color)
 }
 
 colorControl("pointer-color", "pointer-intensity", (c) => (pointerLight.color = c));
-colorControl("torch-color", "torch-brightness", (c) => (playerLight.color = c));
+colorControl("torch-color", "torch-brightness", (c) => (torchColor = c));
 colorControl("flare-color", "flare-brightness", (c) => (flareColor = c));
 colorControl("coin-emission-color", "coin-emission", (c) => (coinEmission = c));
 colorPicker("coin-color", (c) => (coinColor = c));
