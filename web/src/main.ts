@@ -40,8 +40,8 @@ let torchColor: Color = [0, 0, 0];
 let glowColor: Color = [0, 0, 0];
 let beamHalfAngle = 0; // radians
 // Collecting a coin flares the glow bright gold, fading back to normal.
-const COIN_GLOW_COLOR: Color = [3, 2.2, 0.6];
-const COIN_GLOW_TIME = 0.4; // seconds to fade back
+const COIN_GLOW_COLOR: Color = [7, 5, 1.4];
+const COIN_GLOW_TIME = 0.6; // seconds to fade back
 let coinGlowAge = Infinity; // seconds since the last coin was collected
 
 /** The point of the segment nearest to p. */
