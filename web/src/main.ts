@@ -186,14 +186,15 @@ interface Coin {
 }
 const coins: Coin[] = []; // filled from the controls below
 const COIN_RADIUS = 12;
-const COIN_COLOR: Color = [1, 0.8, 0.3];
 // The glow sits over the coin's centre, so it lights only the top of the
-// dome; emission makes the whole face shine. Both scale with the glow slider.
-const COIN_EMISSION: Color = [1.6, 1.25, 0.4];
-const COIN_GLOW_COLOR: Color = [1, 0.85, 0.45];
-const COIN_GLOW_HEIGHT = 30;
-const COIN_GLOW_FALLOFF = 0.012;
-let coinGlowBrightness = 0; // set from the controls below
+// dome and the floor round it; the shine (emission) makes the whole face
+// glow. All set from the controls below and applied to every coin each frame.
+let coinColor: Color = [0, 0, 0];
+let coinEmission: Color = [0, 0, 0];
+let coinGlowColor: Color = [0, 0, 0];
+let coinGlowHeight = 0;
+let coinGlowFalloff = 0;
+let coinShimmer = 0; // fraction the shine and glow swing by
 let coinsCollected = 0;
 const coinsCollectedOutput = document.querySelector<HTMLOutputElement>("#coins-collected")!;
 
@@ -205,12 +206,12 @@ function setCoinCount(count: number): void {
     const clear = randomClearPoint(3 * COIN_RADIUS, others);
     // Integer coordinates, as the sweep needs them for exact tie-breaking.
     const position: Point = [Math.round(clear[0]), Math.round(clear[1])];
-    const light: Light = { ...sweptLight(position, [0, 0, 0]), height: COIN_GLOW_HEIGHT, falloffRate: COIN_GLOW_FALLOFF };
-    coins.push({ body: { position, radius: COIN_RADIUS, color: COIN_COLOR, lit: true }, seed: Math.random() * 100, light });
+    const light = sweptLight(position, [0, 0, 0]);
+    coins.push({ body: { position, radius: COIN_RADIUS, color: coinColor, lit: true }, seed: Math.random() * 100, light });
   }
 }
 
-/** Collects the coins the player touches and sets the rest shimmering. */
+/** Collects the coins the player touches and sets the rest shimmering with the current settings. */
 function updateCoins(seconds: number): void {
   for (let i = coins.length - 1; i >= 0 && playerAlive; i--) {
     if (touchesPlayer(coins[i].body)) {
@@ -220,9 +221,12 @@ function updateCoins(seconds: number): void {
     }
   }
   for (const { body, seed, light } of coins) {
-    const k = coinGlowBrightness * (1 + 0.15 * Math.sin(seconds * 2.5 + seed));
-    light.color = [COIN_GLOW_COLOR[0] * k, COIN_GLOW_COLOR[1] * k, COIN_GLOW_COLOR[2] * k];
-    body.emission = [COIN_EMISSION[0] * k, COIN_EMISSION[1] * k, COIN_EMISSION[2] * k];
+    const k = 1 + coinShimmer * Math.sin(seconds * 2.5 + seed);
+    body.color = coinColor;
+    body.emission = [coinEmission[0] * k, coinEmission[1] * k, coinEmission[2] * k];
+    light.color = [coinGlowColor[0] * k, coinGlowColor[1] * k, coinGlowColor[2] * k];
+    light.height = coinGlowHeight;
+    light.falloffRate = coinGlowFalloff;
   }
 }
 
@@ -633,19 +637,30 @@ slider("enemy-avoid-range", (v) => (enemyAvoidRange = v));
 slider("enemy-avoid-strength", (v) => (enemyAvoidStrength = v));
 slider("enemy-threshold", (v) => (enemyLightThreshold = v));
 slider("coin-count", setCoinCount);
-slider("coin-glow", (v) => (coinGlowBrightness = v));
+slider("coin-glow-height", (v) => (coinGlowHeight = v));
+slider("coin-glow-falloff", (v) => (coinGlowFalloff = v));
+slider("coin-shimmer", (v) => (coinShimmer = v));
 slider("crate-count", setCrateCount);
+
+/** A colour picker's value, scaled by k (a picker can't exceed 1). */
+function pickedColor(id: string, k = 1): Color {
+  const hex = parseInt(input(id).value.slice(1), 16);
+  return [(((hex >> 16) & 255) / 255) * k, (((hex >> 8) & 255) / 255) * k, ((hex & 255) / 255) * k];
+}
+
+/** Wires a colour picker alone to a colour setter. */
+function colorPicker(id: string, set: (color: Color) => void): void {
+  const update = () => set(pickedColor(id));
+  input(id).addEventListener("input", update);
+  update();
+}
 
 /**
  * Wires a colour picker and a brightness slider to a light colour setter. A
  * colour picker can't exceed 1, so brightness comes from the slider.
  */
 function colorControl(colorId: string, brightnessId: string, set: (color: Color) => void): void {
-  const update = () => {
-    const hex = parseInt(input(colorId).value.slice(1), 16);
-    const k = input(brightnessId).valueAsNumber / 255;
-    set([((hex >> 16) & 255) * k, ((hex >> 8) & 255) * k, (hex & 255) * k]);
-  };
+  const update = () => set(pickedColor(colorId, input(brightnessId).valueAsNumber));
   input(colorId).addEventListener("input", update);
   slider(brightnessId, update);
 }
@@ -653,6 +668,9 @@ function colorControl(colorId: string, brightnessId: string, set: (color: Color)
 colorControl("pointer-color", "pointer-intensity", (c) => (pointerLight.color = c));
 colorControl("torch-color", "torch-brightness", (c) => (playerLight.color = c));
 colorControl("flare-color", "flare-brightness", (c) => (flareColor = c));
+colorControl("coin-emission-color", "coin-emission", (c) => (coinEmission = c));
+colorControl("coin-glow-color", "coin-glow", (c) => (coinGlowColor = c));
+colorPicker("coin-color", (c) => (coinColor = c));
 
 /** Copies text, falling back to a hidden textarea where the Clipboard API is missing (plain http). */
 async function copyText(text: string): Promise<void> {
