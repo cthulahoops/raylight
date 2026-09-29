@@ -24,7 +24,7 @@ const player: Disc = { position: PLAYER_START, radius: 25, color: [1, 1, 1] };
 let playerAlive = true;
 const playerLight: Light = {
   ...sweptLight(player.position, [0, 0, 0]), // colour set from the controls below
-  cone: { direction: [0, 1], halfAngle: (15 * Math.PI) / 180 },
+  cone: { direction: [0, 1], halfAngle: 0 }, // width set from the controls below
 };
 // A dim, low glow with quick falloff that lights just the player's
 // surroundings. It shares the torch's position and sweep; colour, height and
@@ -616,6 +616,7 @@ slider("glow-brightness", (v) => {
 });
 slider("glow-height", (v) => (playerGlow.height = v));
 slider("glow-falloff", (v) => (playerGlow.falloffRate = v));
+slider("beam-width", (v) => (playerLight.cone!.halfAngle = (v / 2) * (Math.PI / 180))); // degrees, edge to edge
 slider("flare-burn-time", (v) => (flareBurnTime = v));
 slider("flare-range", (v) => (flareRange = v));
 slider("flare-speed", (v) => (flareSpeed = v));

@@ -51,7 +51,10 @@
             <input id="torch-color" type="color" value="#ffd595">
           </label>
           <label>Torch brightness <output for="torch-brightness"></output>
-            <input id="torch-brightness" type="range" min="0" max="3" step="0.05" value="1.2">
+            <input id="torch-brightness" type="range" min="0" max="10" step="0.1" value="5">
+          </label>
+          <label>Beam width <output for="beam-width"></output>
+            <input id="beam-width" type="range" min="5" max="180" step="1" value="30">
           </label>
           <label>Glow brightness <output for="glow-brightness"></output>
             <input id="glow-brightness" type="range" min="0" max="3" step="0.05" value="1">
@@ -60,7 +63,7 @@
             <input id="glow-height" type="range" min="10" max="400" step="5" value="60">
           </label>
           <label>Glow falloff rate <output for="glow-falloff"></output>
-            <input id="glow-falloff" type="range" min="0" max="0.1" step="0.001" value="0.02">
+            <input id="glow-falloff" type="range" min="0" max="0.03" step="0.0005" value="0.005">
           </label>
         </details>
         <details open>
