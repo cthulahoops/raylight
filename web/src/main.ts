@@ -21,7 +21,7 @@ const pointerLight = sweptLight([0, 0], [0, 0, 0]); // colour set from the contr
 const PLAYER_START: Point = [0, -300];
 const player: Disc = { position: PLAYER_START, radius: 25, color: [1, 1, 1] };
 // An enemy touching the player destroys them. Their torch and glow stay
-// where they fell, sputtering out.
+// where they fell, sputtering out, and the flares they held spill out lit.
 let playerAlive = true;
 let deathAge = 0; // seconds since the player died
 const TORCH_DEATH_TIME = 1.5; // seconds for the torch to sputter out
@@ -270,6 +270,7 @@ function touchesPlayer({ position: [x, y], radius }: Disc): boolean {
 function killPlayer(): void {
   playerAlive = false;
   deathAge = 0;
+  spillFlares();
 }
 
 /**
@@ -511,9 +512,19 @@ function throwFlare(): void {
   if (!playerAlive || flareSpeed === 0 || flaresHeld === 0 || flareCooldownLeft > 0) return;
   flaresHeld--;
   flareCooldownLeft = flareCooldown;
-  // Launched upwards just fast enough to land after covering the range.
-  const flightTime = flareRange / flareSpeed;
-  const velocity: Point = [Math.cos(playerFacing) * flareSpeed, Math.sin(playerFacing) * flareSpeed];
+  launchFlare(playerFacing, flareRange);
+}
+
+/** Dying scatters the flares the player held, lit, short distances every which way. */
+function spillFlares(): void {
+  if (flareSpeed === 0) return;
+  for (; flaresHeld > 0; flaresHeld--) launchFlare(Math.random() * 2 * Math.PI, (0.15 + 0.35 * Math.random()) * flareRange);
+}
+
+/** Sends a lit flare from the player the given way, arcing up just enough to first land `range` away. */
+function launchFlare(angle: number, range: number): void {
+  const flightTime = range / flareSpeed;
+  const velocity: Point = [Math.cos(angle) * flareSpeed, Math.sin(angle) * flareSpeed];
   const light: Light = { ...sweptLight(playerLight.position, [0, 0, 0]), height: FLARE_LIGHT_HEIGHT, falloffRate: 0.01 };
   const vz = (flareGravity * flightTime) / 2;
   flares.push({ position: player.position, velocity, z: 0, vz, age: 0, seed: Math.random() * 100, light });
