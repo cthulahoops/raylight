@@ -194,11 +194,12 @@ let coinGlowBrightness = 0; // set from the controls below
 let coinsCollected = 0;
 const coinsCollectedOutput = document.querySelector<HTMLOutputElement>("#coins-collected")!;
 
-/** Adds or removes coins to reach `count`; new ones spawn clear of walls, the player, enemies and each other. */
+/** Adds or removes coins to reach `count`; new ones spawn clear of walls, the player, enemies, crates and each other. */
 function setCoinCount(count: number): void {
   coins.length = Math.min(coins.length, count);
   while (coins.length < count) {
-    const clear = randomClearPoint(3 * COIN_RADIUS, [...enemies.map((e) => e.body), ...coins.map((c) => c.body)]);
+    const others = [...enemies.map((e) => e.body), ...coins.map((c) => c.body), ...crates.map((c) => c.body)];
+    const clear = randomClearPoint(3 * COIN_RADIUS, others);
     // Integer coordinates, as the sweep needs them for exact tie-breaking.
     const position: Point = [Math.round(clear[0]), Math.round(clear[1])];
     const light: Light = { ...sweptLight(position, [0, 0, 0]), height: COIN_GLOW_HEIGHT, falloffRate: COIN_GLOW_FALLOFF };
@@ -219,6 +220,45 @@ function updateCoins(seconds: number): void {
     const k = coinGlowBrightness * (1 + 0.15 * Math.sin(seconds * 2.5 + seed));
     light.color = [COIN_GLOW_COLOR[0] * k, COIN_GLOW_COLOR[1] * k, COIN_GLOW_COLOR[2] * k];
   }
+}
+
+// Crates of flares lying in the arena, picked up by walking over them. A
+// brown box with the heads of its flares poking out, lit by the scene so it
+// has to be found with the torch.
+interface Crate {
+  body: Disc;
+}
+const crates: Crate[] = []; // filled from the controls below
+const CRATE_RADIUS = 16;
+const CRATE_COLOR: Color = [0.55, 0.35, 0.18];
+// Albedo above 1 so any light on the crate shows its flares red.
+const CRATE_FLARE_COLOR: Color = [2.5, 0.4, 0.2];
+
+/** Adds or removes crates to reach `count`; new ones spawn clear of walls, the player, enemies, coins and each other. */
+function setCrateCount(count: number): void {
+  crates.length = Math.min(crates.length, count);
+  while (crates.length < count) {
+    const others = [...enemies.map((e) => e.body), ...coins.map((c) => c.body), ...crates.map((c) => c.body)];
+    const position = randomClearPoint(2 * CRATE_RADIUS, others);
+    crates.push({ body: { position, radius: CRATE_RADIUS, color: CRATE_COLOR, lit: true } });
+  }
+}
+
+/** Picks up the crates the player touches. */
+function updateCrates(): void {
+  for (let i = crates.length - 1; i >= 0 && playerAlive; i--) {
+    if (touchesPlayer(crates[i].body)) {
+      crates.splice(i, 1);
+      setFlaresHeld(flaresHeld + FLARES_PER_CRATE);
+    }
+  }
+}
+
+/** The crate plus the heads of its flares, in a row across the middle. */
+function crateDiscs({ body }: Crate): Disc[] {
+  const [x, y] = body.position;
+  const head = (dx: number): Disc => ({ position: [x + dx, y], radius: 0.22 * CRATE_RADIUS, color: CRATE_FLARE_COLOR, lit: true });
+  return [body, ...[-0.5, 0, 0.5].map((k) => head(k * CRATE_RADIUS))];
 }
 
 function touchesPlayer({ position: [x, y], radius }: Disc): boolean {
@@ -357,7 +397,7 @@ function crosses(p: Point, q: Point, { start: a, end: b }: Segment): boolean {
 }
 
 // Space throws a flare towards the pointer, or as far as it can reach
-// towards it. It arcs up and first lands after the flight time for that
+// towards it, if the player has one left and the last throw has cooled down. It arcs up and first lands after the flight time for that
 // distance, bouncing off walls on the way and off the floor a few times before
 // settling, and burns with a sputtering light that fades
 // out at the end. Enemies are drawn to it like any other light.
@@ -385,12 +425,26 @@ let flareGravity = 0; // world units per second squared
 let flareBounce = 0; // fraction of speed into a wall kept bouncing off it
 let flareFloorBounce = 0; // fraction of downward speed kept bouncing off the floor
 let flareFloorGrip = 0; // fraction of speed across the floor kept through a floor bounce
+let flareCooldown = 0; // seconds between throws
+
+const FLARES_AT_START = 3;
+const FLARES_PER_CRATE = 3;
+let flaresHeld = FLARES_AT_START;
+let flareCooldownLeft = 0; // seconds until the next throw
+const flaresHeldOutput = document.querySelector<HTMLOutputElement>("#flares-held")!;
+
+function setFlaresHeld(count: number): void {
+  flaresHeld = count;
+  flaresHeldOutput.value = String(count);
+}
 
 function throwFlare(): void {
   const dx = pointerLight.position[0] - player.position[0];
   const dy = pointerLight.position[1] - player.position[1];
   const distance = Math.hypot(dx, dy);
-  if (!playerAlive || distance === 0 || flareSpeed === 0) return;
+  if (!playerAlive || distance === 0 || flareSpeed === 0 || flaresHeld === 0 || flareCooldownLeft > 0) return;
+  setFlaresHeld(flaresHeld - 1);
+  flareCooldownLeft = flareCooldown;
   // Launched upwards just fast enough to land after covering the distance.
   const flightTime = Math.min(distance, flareRange) / flareSpeed;
   const velocity: Point = [(dx / distance) * flareSpeed, (dy / distance) * flareSpeed];
@@ -443,6 +497,7 @@ function sputter(seconds: number, seed: number): number {
 }
 
 function updateFlares(dt: number, seconds: number): void {
+  flareCooldownLeft = Math.max(0, flareCooldownLeft - dt);
   for (const flare of flares) {
     flare.age += dt;
     if (flare.z > 0 || flare.vz > 0) {
@@ -475,12 +530,19 @@ function draw(time: DOMHighResTimeStamp): void {
   movePlayer(dt);
   updateFlares(dt, seconds);
   updateCoins(seconds);
+  updateCrates();
   lastTime = time;
   const lights = [pointerLight, ...(playerAlive ? [playerLight, playerGlow] : []), ...flares.map((f) => f.light)];
   for (const enemy of enemies) moveEnemy(enemy, dt, lights);
   if (enemies.some((e) => touchesPlayer(e.body))) playerAlive = false;
   const pending = wallStart ? segment(wallStart, pointerLight.position) : null;
-  const discs = [...coins.map((c) => c.body), ...(playerAlive ? [player] : []), ...enemies.flatMap(enemyDiscs), ...flares.map(flareDisc)];
+  const discs = [
+    ...coins.map((c) => c.body),
+    ...crates.flatMap(crateDiscs),
+    ...(playerAlive ? [player] : []),
+    ...enemies.flatMap(enemyDiscs),
+    ...flares.map(flareDisc),
+  ];
   renderer.render(walls, [...lights, ...coins.map((c) => c.light)], pending, discs);
   requestAnimationFrame(draw);
 }
@@ -516,12 +578,14 @@ slider("flare-gravity", (v) => (flareGravity = v));
 slider("flare-bounce", (v) => (flareBounce = v));
 slider("flare-floor-bounce", (v) => (flareFloorBounce = v));
 slider("flare-floor-grip", (v) => (flareFloorGrip = v));
+slider("flare-cooldown", (v) => (flareCooldown = v));
 slider("enemy-count", setEnemyCount);
 slider("enemy-avoid-range", (v) => (enemyAvoidRange = v));
 slider("enemy-avoid-strength", (v) => (enemyAvoidStrength = v));
 slider("enemy-threshold", (v) => (enemyLightThreshold = v));
 slider("coin-count", setCoinCount);
 slider("coin-glow", (v) => (coinGlowBrightness = v));
+slider("crate-count", setCrateCount);
 
 /**
  * Wires a colour picker and a brightness slider to a light colour setter. A
@@ -577,19 +641,23 @@ for (const button of document.querySelectorAll<HTMLButtonElement>("#controls .co
 }
 
 /**
- * Brings the player back at the start, clears the flares and deals fresh
- * enemies and coins. Walls stay as drawn.
+ * Brings the player back at the start with a fresh stock of flares, clears
+ * the thrown ones and deals fresh enemies, coins and crates. Walls stay as drawn.
  */
 function restart(): void {
   playerAlive = true;
   player.position = pushOutOfWalls(PLAYER_START, player.radius);
   followPlayer();
   flares.length = 0;
-  // Counts come from the sliders, as collecting coins leaves fewer than set.
+  setFlaresHeld(FLARES_AT_START);
+  flareCooldownLeft = 0;
+  // Counts come from the sliders, as collecting coins and crates leaves fewer than set.
   enemies.length = 0;
   coins.length = 0;
+  crates.length = 0;
   setEnemyCount(input("enemy-count").valueAsNumber);
   setCoinCount(input("coin-count").valueAsNumber);
+  setCrateCount(input("crate-count").valueAsNumber);
   coinsCollected = 0;
   coinsCollectedOutput.value = "0";
 }
