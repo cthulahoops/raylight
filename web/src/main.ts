@@ -19,7 +19,7 @@ const pointerLight = sweptLight([0, 0], [0, 0, 0]); // colour set from the contr
 // Clicking or tapping sends the player towards that point, and arrow keys or
 // WASD drive them too. They carry a warm torch pointing the way they face.
 const PLAYER_START: Point = [0, -300];
-const player: Disc = { position: PLAYER_START, radius: 25, color: [1, 1, 1] };
+const player: Disc = { position: PLAYER_START, radius: 25, color: [0.75, 0.75, 0.75], lit: true };
 // An enemy touching the player destroys them. Their torch and glow stay
 // where they fell, sputtering out, the flares they held spill out lit, and
 // they shatter.
@@ -321,6 +321,18 @@ function enemyDiscs({ body, heading }: Enemy): Disc[] {
     lit: true,
   });
   return [body, eye(1), eye(-1)];
+}
+
+/** The player's dome plus a white lens near its rim where the torch shines out. */
+function playerDiscs(): Disc[] {
+  const [px, py] = player.position;
+  const r = player.radius;
+  const lens: Disc = {
+    position: [px + Math.cos(playerFacing) * 0.6 * r, py + Math.sin(playerFacing) * 0.6 * r],
+    radius: 0.3 * r,
+    color: [1, 1, 1],
+  };
+  return [player, lens];
 }
 
 /** Point the torch the way the player faces. */
@@ -716,7 +728,7 @@ function draw(time: DOMHighResTimeStamp): void {
   const discs = [
     ...coins.map((c) => c.body),
     ...crates.flatMap(crateDiscs),
-    ...(playerAlive ? [player] : []),
+    ...(playerAlive ? playerDiscs() : []),
     ...shards.map((s) => s.body),
     ...enemies.flatMap(enemyDiscs),
     ...flares.map(flareDisc),
