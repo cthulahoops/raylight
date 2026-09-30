@@ -434,7 +434,7 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") wallStart = null;
   if (e.code === "Space") {
     if (!e.repeat) {
-      if (isGameOver()) restart();
+      if (isGameOver() || won) restart();
       else throwFlare();
     }
     e.preventDefault();
@@ -715,6 +715,7 @@ function updateHud(): void {
   const coinsText = `${coinsCollected}/${coinsCollected + coins.length}`;
   if (coinsCollectedOutput.value !== coinsText) coinsCollectedOutput.value = coinsText;
   gameOverNotice.hidden = !isGameOver();
+  levelClearedNotice.hidden = !won;
 }
 
 // Once the dead player's torch has sputtered out, the game is over until
@@ -724,6 +725,11 @@ function isGameOver(): boolean {
   return !playerAlive && deathAge >= TORCH_DEATH_TIME;
 }
 gameOverNotice.addEventListener("click", restart);
+
+// Once the level is won, play carries on until Space, or a tap on the
+// notice, starts it again.
+const levelClearedNotice = document.querySelector<HTMLDivElement>("#level-cleared")!;
+levelClearedNotice.addEventListener("click", restart);
 
 // Flares sputter and things move every frame, so render continuously rather than on input.
 let lastTime: DOMHighResTimeStamp | null = null;

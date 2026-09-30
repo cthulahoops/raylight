@@ -24,6 +24,11 @@
       #game-over[hidden] { display: none; }
       #game-over h1 { margin: 0; font: 700 48px system-ui, sans-serif; letter-spacing: 0.1em; color: #f66; }
       #game-over p { margin: 0; font-size: 18px; }
+      /* A banner over the top of the game once the level is won, leaving the rest playable. */
+      #level-cleared { position: absolute; top: 1.5rem; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding: 0.75rem 1.5rem; border-radius: 0.75rem; background: #000a; color: #eee; cursor: pointer; white-space: nowrap; }
+      #level-cleared[hidden] { display: none; }
+      #level-cleared h1 { margin: 0; font: 700 36px system-ui, sans-serif; letter-spacing: 0.1em; color: #ffcc4d; }
+      #level-cleared p { margin: 0; font-size: 16px; }
       #settings-toggle { position: fixed; top: 0.5rem; right: 0.5rem; z-index: 1; }
       #fps { position: fixed; top: 0.5rem; left: 0.5rem; z-index: 1; padding: 0.1rem 0.4rem; background: #000a; font: 12px ui-monospace, monospace; pointer-events: none; }
       /*
@@ -55,6 +60,10 @@
       </div>
       <div id="game-over" hidden>
         <h1>GAME OVER</h1>
+        <p>Press Space to play again</p>
+      </div>
+      <div id="level-cleared" hidden>
+        <h1>LEVEL CLEARED</h1>
         <p>Press Space to play again</p>
       </div>
     </div>
