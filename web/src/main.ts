@@ -202,6 +202,13 @@ let coinColor: Color = [0, 0, 0];
 let coinEmission: Color = [0, 0, 0];
 let coinShimmer = 0; // fraction the shine swings by
 let coinsCollected = 0;
+// Collecting the last coin wins: the player can no longer be killed, the
+// glow stays gold, and a warm golden ambient light fades up across the arena.
+let won = false;
+let wonAge = 0; // seconds since winning
+const NIGHT_AMBIENT: Color = [0.02, 0.02, 0.05];
+const VICTORY_AMBIENT: Color = [0.35, 0.27, 0.12];
+const VICTORY_FADE_TIME = 3; // seconds for the ambient light to come up
 
 /** Adds or removes coins to reach `count`; new ones spawn clear of walls, the player, enemies, crates and each other. */
 function setCoinCount(count: number): void {
@@ -220,6 +227,7 @@ function updateCoins(seconds: number): void {
       coins.splice(i, 1);
       coinsCollected++;
       coinGlowAge = 0;
+      if (coins.length === 0) won = true;
     }
   }
   for (const { body, seed } of coins) {
@@ -299,11 +307,20 @@ function updateTorch(dt: number, seconds: number): boolean {
   }
   playerLight.color = [torchColor[0] * k, torchColor[1] * k, torchColor[2] * k];
   coinGlowAge += dt;
-  const gold = Math.max(0, 1 - coinGlowAge / COIN_GLOW_TIME) ** 2; // quick at first, easing back to normal
+  const gold = won ? 1 : Math.max(0, 1 - coinGlowAge / COIN_GLOW_TIME) ** 2; // quick at first, easing back to normal
   const glow = (i: number) => (glowColor[i] + (COIN_GLOW_COLOR[i] - glowColor[i]) * gold) * k;
   playerGlow.color = [glow(0), glow(1), glow(2)];
   playerLight.cone!.halfAngle = beamHalfAngle * beam;
   return true;
+}
+
+/** Fades the ambient light up to gold after winning, easing in and out. */
+function updateAmbient(dt: number): void {
+  if (won) wonAge += dt;
+  const t = Math.min(1, wonAge / VICTORY_FADE_TIME);
+  const k = t * t * (3 - 2 * t);
+  const mix = (i: number) => NIGHT_AMBIENT[i] + (VICTORY_AMBIENT[i] - NIGHT_AMBIENT[i]) * k;
+  renderer.lighting.ambient = [mix(0), mix(1), mix(2)];
 }
 
 // Albedo above 1 so even dim light pushes the eyes to full red.
@@ -720,10 +737,11 @@ function draw(time: DOMHighResTimeStamp): void {
   updateShards(dt);
   updateCoins(seconds);
   updateCrates();
+  updateAmbient(dt);
   lastTime = time;
   const lights = [pointerLight, ...(torchLit ? [playerLight, playerGlow] : []), ...flares.map((f) => f.light)];
   for (const enemy of enemies) moveEnemy(enemy, dt, lights);
-  if (playerAlive && enemies.some((e) => touchesPlayer(e.body))) killPlayer();
+  if (playerAlive && !won && enemies.some((e) => touchesPlayer(e.body))) killPlayer();
   const pending = wallStart ? segment(wallStart, pointerLight.position) : null;
   const discs = [
     ...coins.map((c) => c.body),
@@ -868,6 +886,8 @@ function restart(): void {
   setCrateCount(input("crate-count").valueAsNumber);
   coinsCollected = 0;
   coinGlowAge = Infinity;
+  won = false;
+  wonAge = 0;
 }
 
 const settingsToggle = document.querySelector<HTMLButtonElement>("#settings-toggle")!;

@@ -28,7 +28,6 @@ export interface Light {
 /** Fraction of the cone's half-angle over which the beam edge fades. */
 const CONE_EDGE_SOFTNESS = 0.15;
 
-const AMBIENT: Color = [0.02, 0.02, 0.05];
 /** Walls are white, but a little below 1 so bright lights don't flatten them. */
 const WALL_ALBEDO = 0.8;
 
@@ -258,11 +257,13 @@ export interface LightingParams {
   lightHeight: number;
   /** Distance falloff per world unit: 1 / (1 + rate * distance). */
   falloffRate: number;
+  /** Light reaching everywhere, shadowed or not. */
+  ambient: Color;
 }
 
 export class Renderer {
   /** Read on every render, so changes take effect on the next frame. */
-  readonly lighting: LightingParams = { lightHeight: 200, falloffRate: 0.005 };
+  readonly lighting: LightingParams = { lightHeight: 200, falloffRate: 0.005, ambient: [0.02, 0.02, 0.05] };
   private readonly gl: WebGL2RenderingContext;
   private readonly lit: WebGLProgram;
   private readonly flat: WebGLProgram;
@@ -422,7 +423,7 @@ export class Renderer {
     gl.useProgram(this.lit);
     gl.uniform1f(this.litLocs.scale, scale);
     gl.uniform1f(this.litLocs.falloffRate, this.lighting.falloffRate);
-    gl.uniform3f(this.litLocs.ambient, ...AMBIENT);
+    gl.uniform3f(this.litLocs.ambient, ...this.lighting.ambient);
     gl.uniform3f(this.litLocs.lightColor, 0, 0, 0);
     gl.uniform1i(this.litLocs.surface, SURFACE_FLOOR);
     this.draw(this.floor);
