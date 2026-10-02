@@ -123,8 +123,8 @@ interface Enemy {
 
 const enemies: Enemy[] = []; // filled from the controls below
 
-// Enemies never spawn within a 400 by 400 square centred on the player.
-const ENEMY_SPAWN_KEEP_OUT = 200; // half the square's side
+// Enemies never spawn within an 800 by 800 square centred on the player.
+const ENEMY_SPAWN_KEEP_OUT = 400; // half the square's side
 
 /** Adds or removes enemies to reach `count`; new ones spawn clear of walls, the player and each other. */
 function setEnemyCount(count: number): void {
