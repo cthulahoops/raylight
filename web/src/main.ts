@@ -314,13 +314,16 @@ function updateTorch(dt: number, seconds: number): boolean {
   return true;
 }
 
+// The level editor lights everything up so the layout can be seen.
+const EDITOR_AMBIENT: Color = [0.5, 0.5, 0.55];
+
 /** Fades the ambient light up to gold after winning, easing in and out. */
 function updateAmbient(dt: number): void {
   if (won) wonAge += dt;
   const t = Math.min(1, wonAge / VICTORY_FADE_TIME);
   const k = t * t * (3 - 2 * t);
   const mix = (i: number) => NIGHT_AMBIENT[i] + (VICTORY_AMBIENT[i] - NIGHT_AMBIENT[i]) * k;
-  renderer.lighting.ambient = [mix(0), mix(1), mix(2)];
+  renderer.lighting.ambient = levelEditor.checked ? EDITOR_AMBIENT : [mix(0), mix(1), mix(2)];
 }
 
 // Albedo above 1 so even dim light pushes the eyes to full red.
