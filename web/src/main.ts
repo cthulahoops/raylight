@@ -973,6 +973,16 @@ settingsToggle.addEventListener("click", () => {
   settingsToggle.blur(); // so Space throws a flare rather than pressing it again
 });
 
+// Puts every setting back to its value in the page, as if nothing were stored.
+const resetSettingsButton = document.querySelector<HTMLButtonElement>("#reset-settings")!;
+resetSettingsButton.addEventListener("click", () => {
+  for (const el of settingInputs) {
+    el.value = el.defaultValue;
+    el.dispatchEvent(new Event("input", { bubbles: true })); // applies and stores it
+  }
+  resetSettingsButton.blur();
+});
+
 const restartButton = document.querySelector<HTMLButtonElement>("#restart")!;
 restartButton.addEventListener("click", () => {
   restart();
