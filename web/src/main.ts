@@ -1,5 +1,5 @@
 import { ARENA_EDGES, EXAMPLE_WALLS, type Point, type Segment, segment, splitCrossings, visibilityTriangles } from "./raylighting";
-import { type Color, type Disc, type Light, Renderer } from "./renderer";
+import { type Color, type Disc, type Light, type Mark, Renderer } from "./renderer";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
 const renderer = await Renderer.create(canvas);
@@ -442,20 +442,61 @@ function gridLines(): Segment[] {
 }
 
 // In the level editor, click once to start a wall, again to finish it.
-// Escape abandons it.
+// Escape abandons it. Hovering over a wall picks it out, and right-clicking
+// or pressing Delete removes it.
 canvas.addEventListener("click", (e) => {
   if (!levelEditor.checked) return;
   const p = snapped(toWorld(e));
   if (wallStart === null) {
     wallStart = p;
   } else {
-    if (p[0] !== wallStart[0] || p[1] !== wallStart[1]) {
-      drawnWalls.push(segment(wallStart, p));
-      wallsChanged();
-    }
+    const start = wallStart;
+    if (p[0] !== start[0] || p[1] !== start[1]) editWalls(() => drawnWalls.push(segment(start, p)));
     wallStart = null;
   }
 });
+
+canvas.addEventListener("contextmenu", (e) => {
+  if (!levelEditor.checked) return;
+  e.preventDefault();
+  deleteHoveredWall();
+});
+
+let pointerOnCanvas = false;
+canvas.addEventListener("pointerenter", () => (pointerOnCanvas = true));
+canvas.addEventListener("pointerleave", () => (pointerOnCanvas = false));
+
+const PENDING_WALL_COLOR: Color = [0.5, 0.5, 0.5];
+const HOVERED_WALL_COLOR: Color = [1, 0.25, 0.2];
+const HOVER_RANGE = 20; // world units from the pointer within which a wall is picked out
+
+/** The drawn wall nearest the pointer, if it's close enough, in the level editor and not mid-wall. */
+function hoveredWall(): Segment | null {
+  if (!levelEditor.checked || !pointerOnCanvas || wallStart) return null;
+  let nearest: Segment | null = null;
+  let best = HOVER_RANGE;
+  for (const wall of drawnWalls) {
+    const d = distanceToSegment(pointerLight.position, wall);
+    if (d < best) [best, nearest] = [d, wall];
+  }
+  return nearest;
+}
+
+function deleteHoveredWall(): void {
+  const wall = hoveredWall();
+  if (wall) editWalls(() => drawnWalls.splice(drawnWalls.indexOf(wall), 1));
+}
+
+// Each edit stores the walls as they were before, for Undo. Kept only until
+// the page is reloaded.
+const wallHistory: Segment[][] = [];
+
+/** Makes a change to the drawn walls that Undo can take back. */
+function editWalls(change: () => void): void {
+  wallHistory.push([...drawnWalls]);
+  change();
+  wallsChanged();
+}
 
 /** Stores the drawn walls and brings everything that depends on them up to date. */
 function wallsChanged(): void {
@@ -463,14 +504,16 @@ function wallsChanged(): void {
   updateWalls();
 }
 
-/** Abandons the wall being drawn, if there is one, otherwise removes the last wall drawn. */
+/** Abandons the wall being drawn, if there is one, otherwise takes back the last edit. */
 function undoWall(): void {
   if (wallStart) {
     wallStart = null;
-  } else if (drawnWalls.length > 0) {
-    drawnWalls.pop();
-    wallsChanged();
+    return;
   }
+  const previous = wallHistory.pop();
+  if (!previous) return;
+  drawnWalls.splice(0, drawnWalls.length, ...previous);
+  wallsChanged();
 }
 
 const undoWallButton = document.querySelector<HTMLButtonElement>("#undo-wall")!;
@@ -481,11 +524,8 @@ undoWallButton.addEventListener("click", () => {
 
 const clearWallsButton = document.querySelector<HTMLButtonElement>("#clear-walls")!;
 clearWallsButton.addEventListener("click", () => {
-  if (drawnWalls.length > 0 && confirm("Remove every wall?")) {
-    drawnWalls.length = 0;
-    wallStart = null;
-    wallsChanged();
-  }
+  wallStart = null;
+  if (drawnWalls.length > 0) editWalls(() => (drawnWalls.length = 0));
   clearWallsButton.blur();
 });
 
@@ -511,6 +551,10 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") wallStart = null;
   if (e.code === "KeyZ" && (e.ctrlKey || e.metaKey) && levelEditor.checked) {
     undoWall();
+    e.preventDefault();
+  }
+  if ((e.key === "Delete" || e.key === "Backspace") && levelEditor.checked) {
+    deleteHoveredWall();
     e.preventDefault();
   }
   if (e.code === "Space") {
@@ -833,7 +877,11 @@ function draw(time: DOMHighResTimeStamp): void {
   const lights = [pointerLight, ...(torchLit ? [playerLight, playerGlow] : []), ...flares.map((f) => f.light)];
   for (const enemy of enemies) moveEnemy(enemy, dt, lights);
   if (playerAlive && !won && enemies.some((e) => touchesPlayer(e.body))) killPlayer();
-  const pending = wallStart ? segment(wallStart, snapped(pointerLight.position)) : null;
+  const hovered = hoveredWall();
+  const marks: Mark[] = [
+    ...(wallStart ? [{ segment: segment(wallStart, snapped(pointerLight.position)), color: PENDING_WALL_COLOR }] : []),
+    ...(hovered ? [{ segment: hovered, color: HOVERED_WALL_COLOR }] : []),
+  ];
   const grid = levelEditor.checked && snapToGrid.checked ? gridLines() : [];
   const discs = [
     ...coins.map((c) => c.body),
@@ -843,7 +891,7 @@ function draw(time: DOMHighResTimeStamp): void {
     ...enemies.flatMap(enemyDiscs),
     ...flares.map(flareDisc),
   ];
-  renderer.render(walls, lights, pending, discs, grid);
+  renderer.render(walls, lights, marks, discs, grid);
   updateHud();
   countFrame(start);
   requestAnimationFrame(draw);

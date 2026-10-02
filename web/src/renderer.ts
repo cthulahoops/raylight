@@ -255,6 +255,12 @@ export interface Disc {
   box?: Point;
 }
 
+/** A segment drawn flat on top of the scene, wall thick, such as a wall being drawn. */
+export interface Mark {
+  segment: Segment;
+  color: Color;
+}
+
 export interface LightingParams {
   /** Height of lights above the floor, in world units. */
   lightHeight: number;
@@ -406,8 +412,8 @@ export class Renderer {
     gl.disable(gl.DEPTH_TEST);
   }
 
-  /** `grid` lines are drawn faintly over the scene, beneath the wall being drawn and the unlit discs. */
-  render(walls: Segment[], lights: Light[], pending: Segment | null = null, discs: Disc[] = [], grid: Segment[] = []): void {
+  /** `grid` lines are drawn faintly over the scene, then the marks, then the unlit discs. */
+  render(walls: Segment[], lights: Light[], marks: Mark[] = [], discs: Disc[] = [], grid: Segment[] = []): void {
     const gl = this.gl;
     const scale = 1 / this.worldExtent;
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -483,9 +489,9 @@ export class Renderer {
       this.draw(wallQuads(grid, 1));
       gl.disable(gl.BLEND);
     }
-    if (pending) {
-      gl.uniform3f(this.flatLocs.color, 0.5, 0.5, 0.5);
-      this.draw(wallQuads([pending]));
+    for (const { segment, color } of marks) {
+      gl.uniform3f(this.flatLocs.color, ...color);
+      this.draw(wallQuads([segment]));
     }
     for (const { position, radius, color, lit, box } of discs) {
       if (lit) continue;
