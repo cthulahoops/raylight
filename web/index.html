@@ -49,6 +49,8 @@
       #controls label { display: grid; grid-template-columns: 1fr auto; gap: 0.25rem; }
       #controls input { grid-column: 1 / -1; width: 100%; margin: 0; }
       #controls input[type="color"] { height: 1.5rem; }
+      #controls .buttons { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+      #controls .buttons button { flex: 1; }
     </style>
   </head>
   <body>
@@ -184,6 +186,10 @@
           <label>Click to draw walls instead of moving
             <input id="level-editor" type="checkbox">
           </label>
+          <div class="buttons">
+            <button type="button" id="undo-wall" title="Ctrl+Z">Undo wall</button>
+            <button type="button" id="clear-walls">Clear walls</button>
+          </div>
         </details>
         <button type="button" id="restart">Restart</button>
         <button type="button" class="copy">Copy all settings</button>

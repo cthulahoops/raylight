@@ -426,11 +426,42 @@ canvas.addEventListener("click", (e) => {
   } else {
     if (p[0] !== wallStart[0] || p[1] !== wallStart[1]) {
       drawnWalls.push(segment(wallStart, p));
-      localStorage.setItem(WALLS_KEY, JSON.stringify(drawnWalls));
-      updateWalls();
+      wallsChanged();
     }
     wallStart = null;
   }
+});
+
+/** Stores the drawn walls and brings everything that depends on them up to date. */
+function wallsChanged(): void {
+  localStorage.setItem(WALLS_KEY, JSON.stringify(drawnWalls));
+  updateWalls();
+}
+
+/** Abandons the wall being drawn, if there is one, otherwise removes the last wall drawn. */
+function undoWall(): void {
+  if (wallStart) {
+    wallStart = null;
+  } else if (drawnWalls.length > 0) {
+    drawnWalls.pop();
+    wallsChanged();
+  }
+}
+
+const undoWallButton = document.querySelector<HTMLButtonElement>("#undo-wall")!;
+undoWallButton.addEventListener("click", () => {
+  undoWall();
+  undoWallButton.blur(); // so Space throws a flare rather than pressing it again
+});
+
+const clearWallsButton = document.querySelector<HTMLButtonElement>("#clear-walls")!;
+clearWallsButton.addEventListener("click", () => {
+  if (drawnWalls.length > 0 && confirm("Remove every wall?")) {
+    drawnWalls.length = 0;
+    wallStart = null;
+    wallsChanged();
+  }
+  clearWallsButton.blur();
 });
 
 // Held keys are tracked so movement is per frame, not per key repeat. They
@@ -453,6 +484,10 @@ const heldKeys = new Set<string>();
 
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") wallStart = null;
+  if (e.code === "KeyZ" && (e.ctrlKey || e.metaKey) && levelEditor.checked) {
+    undoWall();
+    e.preventDefault();
+  }
   if (e.code === "Space") {
     if (!e.repeat) {
       if (isGameOver() || won) restart();
