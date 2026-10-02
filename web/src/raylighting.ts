@@ -268,11 +268,16 @@ export function visibilityTriangles(light: Point, walls: Iterable<Segment>): Flo
   return Float32Array.from(verts);
 }
 
-export const EXAMPLE_WALLS: Segment[] = [
+/** The edge of the arena, enclosing every light so the sweep always has a wall to hit. */
+export const ARENA_EDGES: Segment[] = [
   segment([-1000, 1000], [1000, 1000]),
   segment([-1000, -1000], [1000, -1000]),
   segment([1000, -1000], [1000, 1000]),
   segment([-1000, -1000], [-1000, 1000]),
+];
+
+/** Walls inside the arena. */
+export const EXAMPLE_WALLS: Segment[] = [
   segment([-800, 800], [800, 800]),
   segment([800, 800], [800, -800]),
   segment([-45, 500], [500, 500]),

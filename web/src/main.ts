@@ -1,4 +1,4 @@
-import { EXAMPLE_WALLS, type Point, type Segment, segment, splitCrossings, visibilityTriangles } from "./raylighting";
+import { ARENA_EDGES, EXAMPLE_WALLS, type Point, type Segment, segment, splitCrossings, visibilityTriangles } from "./raylighting";
 import { type Color, type Disc, type Light, Renderer } from "./renderer";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
@@ -19,9 +19,14 @@ function loadStored<T>(key: string, fallback: T): T {
   }
 }
 
-const drawnWalls: Segment[] = loadStored(WALLS_KEY, [...EXAMPLE_WALLS]);
+// The arena edges are always there, so only the walls drawn inside them are
+// kept and edited. Levels stored with the edges among them have them dropped.
+const isArenaEdge = ({ start, end }: Segment) =>
+  ARENA_EDGES.some((edge) => [edge.start, edge.end].every((p) => [start, end].some((q) => p[0] === q[0] && p[1] === q[1])));
+const drawnWalls: Segment[] = loadStored(WALLS_KEY, [...EXAMPLE_WALLS]).filter((w) => !isArenaEdge(w));
 // The sweep needs crossings as endpoints; recomputed only when walls change.
-let walls: Segment[] = splitCrossings(drawnWalls);
+let walls: Segment[] = splitCrossings([...ARENA_EDGES, ...drawnWalls]);
+
 
 /** A light swept against the current walls; re-sweep whenever its position or the walls change. */
 function sweptLight(position: Point, color: Color): Light {
@@ -376,7 +381,7 @@ function aimTorch(): void {
 }
 
 function updateWalls(): void {
-  walls = splitCrossings(drawnWalls);
+  walls = splitCrossings([...ARENA_EDGES, ...drawnWalls]);
   for (const light of [pointerLight, playerLight]) {
     light.triangles = visibilityTriangles(light.position, walls);
   }
