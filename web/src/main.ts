@@ -1004,6 +1004,11 @@ function restart(): void {
 const settingsToggle = document.querySelector<HTMLButtonElement>("#settings-toggle")!;
 settingsToggle.addEventListener("click", () => {
   controls.hidden = !controls.hidden;
+  // The level editor is only for while paused, so play resumes out of it.
+  if (controls.hidden && levelEditor.checked) {
+    levelEditor.checked = false;
+    levelEditor.dispatchEvent(new Event("change"));
+  }
   settingsToggle.blur(); // so Space throws a flare rather than pressing it again
 });
 
