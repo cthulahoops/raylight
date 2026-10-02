@@ -375,6 +375,8 @@ function toWorld(e: PointerEvent): Point {
   return [Math.round(x * 1000), Math.round(y * 1000)];
 }
 
+const controls = document.querySelector<HTMLFormElement>("#controls")!;
+
 // With the level editor off, pressing on the canvas sets where the player
 // heads, and dragging while pressed steers them.
 const levelEditor = input("level-editor");
@@ -385,7 +387,7 @@ levelEditor.addEventListener("change", () => {
 });
 
 canvas.addEventListener("pointerdown", (e) => {
-  if (levelEditor.checked) return;
+  if (levelEditor.checked || !controls.hidden) return; // nowhere to head while paused
   moveTarget = toWorld(e);
   canvas.setPointerCapture(e.pointerId);
 });
@@ -435,7 +437,7 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "Space") {
     if (!e.repeat) {
       if (isGameOver() || won) restart();
-      else throwFlare();
+      else if (controls.hidden) throwFlare(); // not while paused
     }
     e.preventDefault();
   }
@@ -731,12 +733,16 @@ gameOverNotice.addEventListener("click", restart);
 const levelClearedNotice = document.querySelector<HTMLDivElement>("#level-cleared")!;
 levelClearedNotice.addEventListener("click", restart);
 
-// Flares sputter and things move every frame, so render continuously rather than on input.
+// Flares sputter and things move every frame, so render continuously rather
+// than on input. The game is paused while the settings are open: its clock
+// stands still, but it still renders so walls being drawn show up.
 let lastTime: DOMHighResTimeStamp | null = null;
+let seconds = 0; // game time, which doesn't run while paused
 function draw(time: DOMHighResTimeStamp): void {
   const start = performance.now();
-  const seconds = time / 1000;
-  const dt = lastTime === null ? 0 : Math.min(seconds - lastTime / 1000, 0.1); // cap after a paused tab
+  const paused = !controls.hidden;
+  const dt = lastTime === null || paused ? 0 : Math.min((time - lastTime) / 1000, 0.1); // cap after a paused tab
+  seconds += dt;
   movePlayer(dt);
   const torchLit = updateTorch(dt, seconds);
   updateFlares(dt, seconds);
@@ -898,7 +904,6 @@ function restart(): void {
 
 const settingsToggle = document.querySelector<HTMLButtonElement>("#settings-toggle")!;
 settingsToggle.addEventListener("click", () => {
-  const controls = document.querySelector<HTMLFormElement>("#controls")!;
   controls.hidden = !controls.hidden;
   settingsToggle.blur(); // so Space throws a flare rather than pressing it again
 });
