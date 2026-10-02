@@ -96,12 +96,17 @@ function pushOutOfWalls(p: Point, clearance: number): Point {
   return [x, y];
 }
 
-/** A random point at least `clearance` from every wall, the arena edge, the player and the other discs. */
-function randomClearPoint(clearance: number, others: Disc[] = []): Point {
+/**
+ * A random point at least `clearance` from every wall, the arena edge and
+ * the other discs, and away from the player: further than four of their
+ * radii, and outside the square of half-size `playerKeepOut` centred on them.
+ */
+function randomClearPoint(clearance: number, others: Disc[] = [], playerKeepOut = 0): Point {
   const limit = 1000 - clearance;
   for (;;) {
     const p: Point = [(Math.random() * 2 - 1) * limit, (Math.random() * 2 - 1) * limit];
-    const nearPlayer = Math.hypot(p[0] - player.position[0], p[1] - player.position[1]) < 4 * player.radius;
+    const [dx, dy] = [p[0] - player.position[0], p[1] - player.position[1]];
+    const nearPlayer = Math.hypot(dx, dy) < 4 * player.radius || Math.max(Math.abs(dx), Math.abs(dy)) < playerKeepOut;
     const nearOther = others.some((d) => Math.hypot(p[0] - d.position[0], p[1] - d.position[1]) < clearance + d.radius);
     if (!nearPlayer && !nearOther && walls.every((w) => distanceToSegment(p, w) >= clearance)) return p;
   }
@@ -118,11 +123,14 @@ interface Enemy {
 
 const enemies: Enemy[] = []; // filled from the controls below
 
+// Enemies never spawn within a 400 by 400 square centred on the player.
+const ENEMY_SPAWN_KEEP_OUT = 200; // half the square's side
+
 /** Adds or removes enemies to reach `count`; new ones spawn clear of walls, the player and each other. */
 function setEnemyCount(count: number): void {
   enemies.length = Math.min(enemies.length, count);
   while (enemies.length < count) {
-    const position = randomClearPoint(2 * player.radius, enemies.map((e) => e.body));
+    const position = randomClearPoint(2 * player.radius, enemies.map((e) => e.body), ENEMY_SPAWN_KEEP_OUT);
     const body: Disc = { position, radius: player.radius, color: [0.4, 0.4, 0.4], lit: true };
     enemies.push({ body, heading: Math.random() * 2 * Math.PI });
   }
