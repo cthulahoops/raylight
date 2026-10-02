@@ -31,6 +31,9 @@ const CONE_EDGE_SOFTNESS = 0.15;
 /** Walls are white, but a little below 1 so bright lights don't flatten them. */
 const WALL_ALBEDO = 0.8;
 
+/** How much of the grid shows over the scene. */
+const GRID_OPACITY = 0.2;
+
 const SURFACE_FLOOR = 0;
 const SURFACE_WALL = 1;
 const SURFACE_DISC = 2;
@@ -403,7 +406,8 @@ export class Renderer {
     gl.disable(gl.DEPTH_TEST);
   }
 
-  render(walls: Segment[], lights: Light[], pending: Segment | null = null, discs: Disc[] = []): void {
+  /** `grid` lines are drawn faintly over the scene, beneath the wall being drawn and the unlit discs. */
+  render(walls: Segment[], lights: Light[], pending: Segment | null = null, discs: Disc[] = [], grid: Segment[] = []): void {
     const gl = this.gl;
     const scale = 1 / this.worldExtent;
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -471,6 +475,14 @@ export class Renderer {
 
     gl.useProgram(this.flat);
     gl.uniform1f(this.flatLocs.scale, scale);
+    if (grid.length > 0) {
+      gl.enable(gl.BLEND);
+      gl.blendColor(0, 0, 0, GRID_OPACITY);
+      gl.blendFunc(gl.CONSTANT_ALPHA, gl.ONE_MINUS_CONSTANT_ALPHA);
+      gl.uniform3f(this.flatLocs.color, 1, 1, 1);
+      this.draw(wallQuads(grid, 1));
+      gl.disable(gl.BLEND);
+    }
     if (pending) {
       gl.uniform3f(this.flatLocs.color, 0.5, 0.5, 0.5);
       this.draw(wallQuads([pending]));

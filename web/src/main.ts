@@ -416,11 +416,31 @@ canvas.addEventListener("pointermove", (e) => {
   if (canvas.hasPointerCapture(e.pointerId)) moveTarget = pointerLight.position;
 });
 
+// Walls snap to a grid, on by default. Its sizes divide the arena evenly, so
+// the edges lie on it; the slider picks one of them.
+const GRID_SIZES = [10, 20, 25, 50, 100, 125, 200, 250];
+const snapToGrid = input("snap-to-grid");
+let gridSize = 0; // set from the controls below
+snapToGrid.addEventListener("change", () => snapToGrid.blur()); // so Space throws a flare rather than toggling it
+
+/** The nearest grid point to p, if snapping is on. */
+function snapped([x, y]: Point): Point {
+  if (!snapToGrid.checked) return [x, y];
+  return [Math.round(x / gridSize) * gridSize, Math.round(y / gridSize) * gridSize];
+}
+
+/** The grid's lines across the whole arena. */
+function gridLines(): Segment[] {
+  const lines: Segment[] = [];
+  for (let k = -1000; k <= 1000; k += gridSize) lines.push(segment([k, -1000], [k, 1000]), segment([-1000, k], [1000, k]));
+  return lines;
+}
+
 // In the level editor, click once to start a wall, again to finish it.
 // Escape abandons it.
 canvas.addEventListener("click", (e) => {
   if (!levelEditor.checked) return;
-  const p = toWorld(e);
+  const p = snapped(toWorld(e));
   if (wallStart === null) {
     wallStart = p;
   } else {
@@ -808,7 +828,8 @@ function draw(time: DOMHighResTimeStamp): void {
   const lights = [pointerLight, ...(torchLit ? [playerLight, playerGlow] : []), ...flares.map((f) => f.light)];
   for (const enemy of enemies) moveEnemy(enemy, dt, lights);
   if (playerAlive && !won && enemies.some((e) => touchesPlayer(e.body))) killPlayer();
-  const pending = wallStart ? segment(wallStart, pointerLight.position) : null;
+  const pending = wallStart ? segment(wallStart, snapped(pointerLight.position)) : null;
+  const grid = levelEditor.checked && snapToGrid.checked ? gridLines() : [];
   const discs = [
     ...coins.map((c) => c.body),
     ...crates.flatMap(crateDiscs),
@@ -817,7 +838,7 @@ function draw(time: DOMHighResTimeStamp): void {
     ...enemies.flatMap(enemyDiscs),
     ...flares.map(flareDisc),
   ];
-  renderer.render(walls, lights, pending, discs);
+  renderer.render(walls, lights, pending, discs, grid);
   updateHud();
   countFrame(start);
   requestAnimationFrame(draw);
@@ -827,27 +848,34 @@ function input(id: string): HTMLInputElement {
   return document.querySelector<HTMLInputElement>(`#${id}`)!;
 }
 
-/** Wires a slider to a setter, echoing its value into the matching <output>. */
-function slider(id: string, set: (value: number) => void): void {
+/**
+ * Wires a slider to a setter, echoing its value into the matching <output>,
+ * or what `show` makes of it.
+ */
+function slider(id: string, set: (value: number) => void, show: (value: number) => string = String): void {
   const el = input(id);
   const out = document.querySelector<HTMLOutputElement>(`output[for=${id}]`)!;
   const update = () => {
     set(el.valueAsNumber);
-    out.value = el.value;
+    out.value = show(el.valueAsNumber);
   };
   el.addEventListener("input", update);
   update();
 }
 
-// Sliders and colour pickers start from their stored values, so restore
-// those before wiring them up, and store them again whenever one changes.
-const settingInputs = [...controls.querySelectorAll<HTMLInputElement>("input[type=range], input[type=color]")];
-const storedSettings = loadStored<Record<string, string>>(SETTINGS_KEY, {});
+// Settings start from their stored values, so restore those before wiring
+// them up, and store them again whenever one changes. The level editor
+// itself is left out, so the game always starts in play.
+const settingInputs = [...controls.querySelectorAll<HTMLInputElement>("input:not(#level-editor)")];
+const settingValue = (el: HTMLInputElement) => (el.type === "checkbox" ? el.checked : el.value);
+const storedSettings = loadStored<Record<string, string | boolean>>(SETTINGS_KEY, {});
 for (const el of settingInputs) {
-  if (el.id in storedSettings) el.value = storedSettings[el.id];
+  const stored = storedSettings[el.id];
+  if (typeof stored === "boolean") el.checked = stored;
+  else if (stored !== undefined) el.value = stored;
 }
 controls.addEventListener("input", () => {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(Object.fromEntries(settingInputs.map((el) => [el.id, el.value]))));
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(Object.fromEntries(settingInputs.map((el) => [el.id, settingValue(el)]))));
 });
 
 slider("light-height", (v) => (renderer.lighting.lightHeight = v));
@@ -874,6 +902,7 @@ slider("enemy-threshold", (v) => (enemyLightThreshold = v));
 slider("coin-count", setCoinCount);
 slider("coin-shimmer", (v) => (coinShimmer = v));
 slider("crate-count", setCrateCount);
+slider("grid-size", (v) => (gridSize = GRID_SIZES[v]), (v) => String(GRID_SIZES[v]));
 
 /** A colour picker's value, scaled by k (a picker can't exceed 1). */
 function pickedColor(id: string, k = 1): Color {
@@ -978,6 +1007,7 @@ const resetSettingsButton = document.querySelector<HTMLButtonElement>("#reset-se
 resetSettingsButton.addEventListener("click", () => {
   for (const el of settingInputs) {
     el.value = el.defaultValue;
+    el.checked = el.defaultChecked;
     el.dispatchEvent(new Event("input", { bubbles: true })); // applies and stores it
   }
   resetSettingsButton.blur();

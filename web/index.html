@@ -186,6 +186,12 @@
           <label>Click to draw walls instead of moving
             <input id="level-editor" type="checkbox">
           </label>
+          <label>Snap to grid
+            <input id="snap-to-grid" type="checkbox" checked>
+          </label>
+          <label>Grid size <output for="grid-size"></output>
+            <input id="grid-size" type="range" min="0" max="7" step="1" value="3">
+          </label>
           <div class="buttons">
             <button type="button" id="undo-wall" title="Ctrl+Z">Undo wall</button>
             <button type="button" id="clear-walls">Clear walls</button>
