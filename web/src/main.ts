@@ -38,7 +38,7 @@ const pointerLight = sweptLight([0, 0], [0, 0, 0]); // colour set from the contr
 
 // Clicking or tapping sends the player towards that point, and arrow keys or
 // WASD drive them too. They carry a warm torch pointing the way they face.
-const PLAYER_START: Point = [0, -300];
+const PLAYER_START: Point = [0, 0];
 const player: Disc = { position: PLAYER_START, radius: 25, color: [0.75, 0.75, 0.75], lit: true };
 // An enemy touching the player destroys them. Their torch and glow stay
 // where they fell, sputtering out, the flares they held spill out lit, and
