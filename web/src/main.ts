@@ -1000,26 +1000,36 @@ async function copyText(text: string): Promise<void> {
   if (!copied) throw new Error("copy failed");
 }
 
-// Each section's Copy button copies its controls' values as JSON, keyed by
-// input id; the one below all the sections copies every control.
-for (const button of document.querySelectorAll<HTMLButtonElement>("#controls .copy")) {
+/** Wires a button to copy the text `text` gives, showing on the button whether it worked. */
+function copyButton(button: HTMLButtonElement, text: () => string): void {
   const label = button.textContent;
-  const scope = button.closest("details") ?? document.querySelector("#controls")!;
   button.addEventListener("click", async (e) => {
     e.preventDefault(); // don't open or close the section
-    const inputs = [...scope.querySelectorAll<HTMLInputElement>("input")];
-    const settings = Object.fromEntries(inputs.map((el) => [el.id, el.type === "range" ? el.valueAsNumber : el.value]));
     let result;
     try {
-      await copyText(JSON.stringify(settings, null, 2));
+      await copyText(text());
       result = "Copied";
     } catch {
       result = "Copy failed";
     }
     button.textContent = result;
     setTimeout(() => (button.textContent = label), 1500);
+    button.blur(); // so Space throws a flare rather than pressing it again
   });
 }
+
+// Each section's Copy button copies its controls' values as JSON, keyed by
+// input id; the one below all the sections copies every control.
+for (const button of document.querySelectorAll<HTMLButtonElement>("#controls .copy")) {
+  const scope = button.closest("details") ?? document.querySelector("#controls")!;
+  copyButton(button, () => {
+    const inputs = [...scope.querySelectorAll<HTMLInputElement>("input")];
+    return JSON.stringify(Object.fromEntries(inputs.map((el) => [el.id, el.type === "range" ? el.valueAsNumber : el.value])), null, 2);
+  });
+}
+
+// Copies the drawn walls as JSON, one wall to a line, in the form they're stored in.
+copyButton(document.querySelector<HTMLButtonElement>("#copy-walls")!, () => `[\n${drawnWalls.map((w) => `  ${JSON.stringify(w)}`).join(",\n")}\n]`);
 
 /**
  * Brings the player back at the start with a fresh stock of flares, clears
