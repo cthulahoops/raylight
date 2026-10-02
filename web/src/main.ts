@@ -4,7 +4,22 @@ import { type Color, type Disc, type Light, Renderer } from "./renderer";
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
 const renderer = await Renderer.create(canvas);
 
-const drawnWalls: Segment[] = [...EXAMPLE_WALLS];
+// The walls and the settings are kept in local storage, so a level being
+// edited survives a reload.
+const WALLS_KEY = "raylight.walls";
+const SETTINGS_KEY = "raylight.settings";
+
+/** The stored value, or the fallback if there's none or it can't be read. */
+function loadStored<T>(key: string, fallback: T): T {
+  try {
+    const stored = localStorage.getItem(key);
+    return stored === null ? fallback : JSON.parse(stored);
+  } catch {
+    return fallback;
+  }
+}
+
+const drawnWalls: Segment[] = loadStored(WALLS_KEY, [...EXAMPLE_WALLS]);
 // The sweep needs crossings as endpoints; recomputed only when walls change.
 let walls: Segment[] = splitCrossings(drawnWalls);
 
@@ -411,6 +426,7 @@ canvas.addEventListener("click", (e) => {
   } else {
     if (p[0] !== wallStart[0] || p[1] !== wallStart[1]) {
       drawnWalls.push(segment(wallStart, p));
+      localStorage.setItem(WALLS_KEY, JSON.stringify(drawnWalls));
       updateWalls();
     }
     wallStart = null;
@@ -787,6 +803,17 @@ function slider(id: string, set: (value: number) => void): void {
   el.addEventListener("input", update);
   update();
 }
+
+// Sliders and colour pickers start from their stored values, so restore
+// those before wiring them up, and store them again whenever one changes.
+const settingInputs = [...controls.querySelectorAll<HTMLInputElement>("input[type=range], input[type=color]")];
+const storedSettings = loadStored<Record<string, string>>(SETTINGS_KEY, {});
+for (const el of settingInputs) {
+  if (el.id in storedSettings) el.value = storedSettings[el.id];
+}
+controls.addEventListener("input", () => {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(Object.fromEntries(settingInputs.map((el) => [el.id, el.value]))));
+});
 
 slider("light-height", (v) => (renderer.lighting.lightHeight = v));
 slider("falloff-rate", (v) => (renderer.lighting.falloffRate = v));
