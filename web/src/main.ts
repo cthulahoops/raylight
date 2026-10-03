@@ -1,5 +1,6 @@
 import { ARENA_EDGES, EXAMPLE_WALLS, type Point, type Segment, segment, splitCrossings, visibilityTriangles } from "./raylighting";
 import { type Color, type Disc, type Light, type Mark, Renderer } from "./renderer";
+import { hearFrom, playBounce, playCoin, playCratePickup, playLevelCleared, playShatter, playThrow, playTorchOut, setAudioPaused, setVolume, unlockAudio } from "./audio";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
 const renderer = await Renderer.create(canvas);
@@ -63,6 +64,10 @@ let beamHalfAngle = 0; // radians
 const COIN_GLOW_COLOR: Color = [7, 5, 1.4];
 const COIN_GLOW_TIME = 0.6; // seconds to fade back
 let coinGlowAge = Infinity; // seconds since the last coin was collected
+// Coins collected within this long of each other chime ever higher.
+const COIN_RUN_TIME = 1.5; // seconds
+const COIN_RUN_MAX = 12; // semitones up the chime goes at most
+let coinRun = 0; // coins in the current run, less one
 
 /** The point of the segment nearest to p. */
 function closestPoint([px, py]: Point, { start: [x1, y1], end: [x2, y2] }: Segment): Point {
@@ -252,10 +257,15 @@ function setCoinCount(count: number): void {
 function updateCoins(seconds: number): void {
   for (let i = coins.length - 1; i >= 0 && playerAlive; i--) {
     if (touchesPlayer(coins[i].body)) {
+      coinRun = coinGlowAge < COIN_RUN_TIME ? Math.min(coinRun + 1, COIN_RUN_MAX) : 0;
+      playCoin(coins[i].body.position, coinRun);
       coins.splice(i, 1);
       coinsCollected++;
       coinGlowAge = 0;
-      if (coins.length === 0) won = true;
+      if (coins.length === 0) {
+        won = true;
+        playLevelCleared(VICTORY_FADE_TIME);
+      }
     }
   }
   for (const { body, seed } of coins) {
@@ -292,6 +302,7 @@ function setCrateCount(count: number): void {
 function updateCrates(): void {
   for (let i = crates.length - 1; i >= 0 && playerAlive; i--) {
     if (touchesPlayer(crates[i].body)) {
+      playCratePickup(crates[i].body.position);
       crates.splice(i, 1);
       flaresHeld += FLARES_PER_CRATE;
     }
@@ -314,6 +325,8 @@ function killPlayer(): void {
   deathAge = 0;
   spillFlares();
   shatterPlayer();
+  playShatter(player.position, SHARD_COUNT);
+  playTorchOut(player.position, TORCH_DEATH_TIME);
 }
 
 /**
@@ -669,6 +682,7 @@ const FLARE_LIGHT_HEIGHT = 30; // above the flare itself, so it lights the floor
 const FLARE_HEIGHT_SCALE = 150; // height at which the flare is drawn twice its size, to show the arc
 const FLARE_FADE = 1; // seconds of fading out at the end of the burn
 const FLARE_SETTLE_SPEED = 50; // upward speed off the floor below which a flare stops bouncing
+const FLARE_LOUDEST_LANDING = 150; // downward speed at which a flare hits the floor as loud as it gets
 // Set from the controls below.
 let flareColor: Color = [0, 0, 0];
 let flareBurnTime = 0; // seconds
@@ -690,6 +704,7 @@ function throwFlare(): void {
   flaresHeld--;
   flareCooldownLeft = flareCooldown;
   launchFlare(playerFacing, flareRange);
+  playThrow(player.position);
 }
 
 /** Dying scatters the flares the player held, lit, short distances every which way. */
@@ -716,6 +731,7 @@ function flyFlare(flare: Flare, dt: number): void {
     // Hit the floor where it was at the start of the frame. Bounce back up,
     // losing speed, until the bounces are too small to see.
     flare.z = 0;
+    playBounce(flare.position, Math.min(1, -flare.vz / FLARE_LOUDEST_LANDING), false);
     flare.vz = -flareFloorBounce * flare.vz;
     flare.velocity = [vx * flareFloorGrip, vy * flareFloorGrip];
     if (flare.vz < FLARE_SETTLE_SPEED) [flare.vz, flare.velocity] = [0, [0, 0]];
@@ -725,8 +741,9 @@ function flyFlare(flare: Flare, dt: number): void {
   const next: Point = [x + vx * dt, y + vy * dt];
   const limit = 1000 - FLARE_RADIUS;
   let blocked = false;
-  if (Math.abs(next[0]) > limit && vx * next[0] > 0) [vx, blocked] = [-flareBounce * vx, true];
-  if (Math.abs(next[1]) > limit && vy * next[1] > 0) [vy, blocked] = [-flareBounce * vy, true];
+  let impact = 0; // speed into whatever it hit
+  if (Math.abs(next[0]) > limit && vx * next[0] > 0) [impact, vx, blocked] = [Math.abs(vx), -flareBounce * vx, true];
+  if (Math.abs(next[1]) > limit && vy * next[1] > 0) [impact, vy, blocked] = [Math.max(impact, Math.abs(vy)), -flareBounce * vy, true];
   const hit = walls.find((w) => crosses(flare.position, next, w));
   if (hit) {
     // Reverse and damp the speed into the wall, keeping the speed along it.
@@ -737,8 +754,10 @@ function flyFlare(flare: Flare, dt: number): void {
     const into = vx * nx + vy * ny;
     vx -= (1 + flareBounce) * into * nx;
     vy -= (1 + flareBounce) * into * ny;
+    impact = Math.max(impact, Math.abs(into));
     blocked = true;
   }
+  if (blocked) playBounce(flare.position, Math.min(1, impact / flareSpeed), true);
   flare.velocity = [vx, vy];
   if (!blocked) flare.position = pushOutOfWalls(next, FLARE_RADIUS); // otherwise stays put this frame, heading away
 }
@@ -870,6 +889,7 @@ levelClearedNotice.addEventListener("click", restart);
 const welcomeNotice = document.querySelector<HTMLDivElement>("#welcome")!;
 function start(): void {
   welcomeNotice.hidden = true;
+  unlockAudio();
 }
 welcomeNotice.addEventListener("click", start);
 
@@ -884,7 +904,9 @@ function draw(time: DOMHighResTimeStamp): void {
   const paused = !controls.hidden || !welcomeNotice.hidden;
   const dt = lastTime === null || paused ? 0 : Math.min((time - lastTime) / 1000, 0.1); // cap after a paused tab
   seconds += dt;
+  setAudioPaused(paused);
   movePlayer(dt);
+  hearFrom(player.position, (p, q) => walls.some((w) => crosses(p, q, w)));
   const torchLit = updateTorch(dt, seconds);
   updateFlares(dt, seconds);
   updateShards(dt);
@@ -973,6 +995,7 @@ slider("enemy-threshold", (v) => (enemyLightThreshold = v));
 slider("coin-count", setCoinCount);
 slider("coin-shimmer", (v) => (coinShimmer = v));
 slider("crate-count", setCrateCount);
+slider("sound-volume", setVolume);
 slider("grid-size", (v) => (gridSize = GRID_SIZES[v]), (v) => String(GRID_SIZES[v]));
 
 /** A colour picker's value, scaled by k (a picker can't exceed 1). */
