@@ -874,8 +874,9 @@ function start(): void {
 welcomeNotice.addEventListener("click", start);
 
 // Flares sputter and things move every frame, so render continuously rather
-// than on input. The game is paused while the welcome notice or the settings are up: its clock
-// stands still, but it still renders so walls being drawn show up.
+// than on input. The game is paused while the welcome notice or the settings
+// are up: its clock stands still, but it still renders so walls being drawn
+// show up.
 let lastTime: DOMHighResTimeStamp | null = null;
 let seconds = 0; // game time, which doesn't run while paused
 function draw(time: DOMHighResTimeStamp): void {
