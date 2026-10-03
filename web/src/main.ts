@@ -3,7 +3,14 @@ import { type Color, type Disc, type Light, type Mark, Renderer } from "./render
 import { ENEMY_STYLES, type EnemySound, type FlareSound, hearFrom, hearNearestEnemy, playBounce, playCoin, playCratePickup, playLevelCleared, playShatter, playThrow, playTorchOut, setAudioPaused, setEnemyStyle, setEnemyVolume, setVolume, startEnemySound, startFlareSound, unlockAudio } from "./audio";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
-const renderer = await Renderer.create(canvas);
+const maybeRenderer = await Renderer.create(canvas);
+if (!maybeRenderer) {
+  // Without WebGL2 there's no game, so say so in place of the welcome.
+  document.querySelector<HTMLElement>("#welcome")!.hidden = true;
+  document.querySelector<HTMLElement>("#no-webgl")!.hidden = false;
+  throw new Error("WebGL2 is not available");
+}
+const renderer = maybeRenderer;
 
 // The walls and the settings are kept in local storage, so a level being
 // edited survives a reload.

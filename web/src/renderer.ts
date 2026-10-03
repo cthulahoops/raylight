@@ -343,9 +343,10 @@ export class Renderer {
     gl.vertexAttribPointer(POS_LOC, 2, gl.FLOAT, false, 0, 0);
   }
 
-  static async create(canvas: HTMLCanvasElement, worldExtent = 1000): Promise<Renderer> {
+  /** A renderer drawing to the canvas, or null if the browser has no WebGL2. */
+  static async create(canvas: HTMLCanvasElement, worldExtent = 1000): Promise<Renderer | null> {
     const gl = canvas.getContext("webgl2", { antialias: false, stencil: true, depth: true });
-    if (!gl) throw new Error("WebGL2 is not available");
+    if (!gl) return null;
     const base = import.meta.env.BASE_URL;
     const [albedo, normalMap] = await Promise.all([
       loadTexture(gl, `${base}textures/floor.png`),
