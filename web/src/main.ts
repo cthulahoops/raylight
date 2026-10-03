@@ -1,6 +1,6 @@
 import { ARENA_EDGES, EXAMPLE_WALLS, type Point, type Segment, segment, splitCrossings, visibilityTriangles } from "./raylighting";
 import { type Color, type Disc, type Light, type Mark, Renderer } from "./renderer";
-import { type FlareSound, hearFrom, playBounce, playCoin, playCratePickup, playLevelCleared, playShatter, playThrow, playTorchOut, setAudioPaused, setVolume, startFlareSound, unlockAudio } from "./audio";
+import { type FlareSound, type Loop, hearFrom, playBounce, playCoin, playCratePickup, playLevelCleared, playShatter, playThrow, playTorchOut, setAudioPaused, setEnemyVolume, setVolume, startEnemySound, startFlareSound, unlockAudio } from "./audio";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
 const renderer = await Renderer.create(canvas);
@@ -124,6 +124,7 @@ function randomClearPoint(clearance: number, others: Disc[] = [], playerKeepOut 
 interface Enemy {
   body: Disc;
   heading: number; // radians
+  sound: Loop;
 }
 
 const enemies: Enemy[] = []; // filled from the controls below
@@ -133,11 +134,11 @@ const ENEMY_SPAWN_KEEP_OUT = 400; // half the square's side
 
 /** Adds or removes enemies to reach `count`; new ones spawn clear of walls, the player and each other. */
 function setEnemyCount(count: number): void {
-  enemies.length = Math.min(enemies.length, count);
+  for (const enemy of enemies.splice(count)) enemy.sound.stop();
   while (enemies.length < count) {
     const position = randomClearPoint(2 * player.radius, enemies.map((e) => e.body), ENEMY_SPAWN_KEEP_OUT);
     const body: Disc = { position, radius: player.radius, color: [0.4, 0.4, 0.4], lit: true };
-    enemies.push({ body, heading: Math.random() * 2 * Math.PI });
+    enemies.push({ body, heading: Math.random() * 2 * Math.PI, sound: startEnemySound(position) });
   }
 }
 const ENEMY_SPEED = 150; // world units per second
@@ -919,7 +920,10 @@ function draw(time: DOMHighResTimeStamp): void {
   updateAmbient(dt);
   lastTime = time;
   const lights = [pointerLight, ...(torchLit ? [playerLight, playerGlow] : []), ...flares.map((f) => f.light)];
-  for (const enemy of enemies) moveEnemy(enemy, dt, lights);
+  for (const enemy of enemies) {
+    moveEnemy(enemy, dt, lights);
+    enemy.sound.move(enemy.body.position);
+  }
   if (playerAlive && !won && enemies.some((e) => touchesPlayer(e.body))) killPlayer();
   const hovered = hoveredWall();
   const marks: Mark[] = [
@@ -1000,6 +1004,7 @@ slider("coin-count", setCoinCount);
 slider("coin-shimmer", (v) => (coinShimmer = v));
 slider("crate-count", setCrateCount);
 slider("sound-volume", setVolume);
+slider("enemy-volume", setEnemyVolume);
 slider("grid-size", (v) => (gridSize = GRID_SIZES[v]), (v) => String(GRID_SIZES[v]));
 
 /** A colour picker's value, scaled by k (a picker can't exceed 1). */
@@ -1093,7 +1098,7 @@ function restart(): void {
   flaresHeld = FLARES_AT_START;
   flareCooldownLeft = 0;
   // Counts come from the sliders, as collecting coins and crates leaves fewer than set.
-  enemies.length = 0;
+  setEnemyCount(0);
   coins.length = 0;
   crates.length = 0;
   setEnemyCount(input("enemy-count").valueAsNumber);

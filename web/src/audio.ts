@@ -353,3 +353,59 @@ export function startFlareSound(at: Point): FlareSound {
     },
   };
 }
+
+// Enemies have a volume of their own, as there can be a lot of them.
+const enemyVolume = gain(1, master);
+
+export function setEnemyVolume(volume: number): void {
+  enemyVolume.gain.value = volume;
+}
+
+/**
+ * An enemy padding along, each step a thud, a scuff and a click of claws,
+ * over a breathing growl with a rasp. No two sound quite alike.
+ */
+export function startEnemySound(at: Point): Loop {
+  const t = ctx.currentTime;
+  const where = place(at, enemyVolume);
+  const bus = gain(0.8, where.gain);
+  const stepRate = rand(2.3, 2.9); // a second
+  const thudPitch = 140 * rand(0.9, 1.1);
+  let left = true;
+  let next = t + rand(0, 1 / stepRate);
+  const steps = (from: number, to: number) => {
+    for (next = Math.max(next, from); next < to; next += rand(0.9, 1.1) / stepRate) {
+      const f = thudPitch * (left ? 1 : 0.85);
+      const thud = osc("sine", f, next, 0.15, hit(next, 0.45, 0.09, bus));
+      thud.frequency.exponentialRampToValueAtTime(f * 0.6, next + 0.09);
+      // The scuff and the claws are what small speakers can actually play.
+      noise(next, 0.12, filter("bandpass", rand(600, 1000), 1.2, hit(next, 0.6, 0.06, bus)));
+      for (const lag of [0.01, rand(0.03, 0.05)]) {
+        noise(next + lag, 0.03, filter("bandpass", rand(2500, 4500), 4, hit(next + lag, 0.6, 0.015, bus, 0.0005)));
+      }
+      left = !left;
+    }
+  };
+  schedulers.add(steps);
+  // The growl: two detuned sawtooths wavering in pitch, through a resonant
+  // filter, with the bass taken off, as the ear hears the low pitch in the
+  // harmonics anyway. Its volume swells and falls with each breath.
+  const pitch = 75 * rand(0.85, 1.15);
+  const growl = gain(0.25, bus);
+  const shape = filter("highpass", 220, 0.7, filter("lowpass", 1100, 4, growl));
+  const voices = [osc("sawtooth", pitch, t, null, shape), osc("sawtooth", pitch * 1.01, t, null, shape)];
+  const rasp = noise(t, null, filter("bandpass", 1400, 1.5, gain(0.32, growl)));
+  const waver = gain(pitch * 0.08);
+  for (const voice of voices) waver.connect(voice.frequency);
+  const breath = gain(0.25);
+  breath.connect(growl.gain);
+  const wobblers = [osc("sine", 7, t, null, waver), osc("sine", rand(0.3, 0.5), t, null, breath)];
+  return {
+    move: (at) => moveTo(where, at),
+    stop() {
+      schedulers.delete(steps);
+      bus.gain.setTargetAtTime(0, ctx.currentTime, 0.02);
+      for (const s of [...voices, rasp, ...wobblers]) s.stop(ctx.currentTime + 0.1);
+    },
+  };
+}
