@@ -361,11 +361,35 @@ export function setEnemyVolume(volume: number): void {
   enemyVolume.gain.value = volume;
 }
 
+/** How the enemies sound, one style at a time, picked in the settings to try them out in play. */
+export const ENEMY_STYLES = ["growl", "chitter", "hum"] as const;
+export type EnemyStyle = (typeof ENEMY_STYLES)[number];
+let enemyStyle: EnemyStyle = "chitter";
+
+/** Sets the style for enemy sounds started from now on. */
+export function setEnemyStyle(style: EnemyStyle): void {
+  enemyStyle = style;
+}
+
+export interface EnemySound extends Loop {
+  /** A cue for the enemy setting its sights on a light. */
+  lockOn(): void;
+}
+
+/** An enemy's sound, in the current style. */
+export function startEnemySound(at: Point): EnemySound {
+  if (enemyStyle === "chitter") return startChitter(at);
+  if (enemyStyle === "hum") return startHumCues(at);
+  return startGrowl(at);
+}
+
+const distanceTo = (at: Point) => Math.hypot(at[0] - listener[0], at[1] - listener[1]);
+
 /**
- * An enemy padding along, each step a thud, a scuff and a click of claws,
- * over a breathing growl with a rasp. No two sound quite alike.
+ * Growl: an enemy padding along, each step a thud, a scuff and a click of
+ * claws, over a breathing growl with a rasp, snarling as it locks on.
  */
-export function startEnemySound(at: Point): Loop {
+function startGrowl(at: Point): EnemySound {
   const t = ctx.currentTime;
   const where = place(at, enemyVolume);
   const bus = gain(0.8, where.gain);
@@ -402,10 +426,113 @@ export function startEnemySound(at: Point): Loop {
   const wobblers = [osc("sine", 7, t, null, waver), osc("sine", rand(0.3, 0.5), t, null, breath)];
   return {
     move: (at) => moveTo(where, at),
+    lockOn() {
+      const now = ctx.currentTime;
+      const snarl = filter("bandpass", 900, 2, hit(now, 1.2, 0.35, bus, 0.08));
+      const saw = osc("sawtooth", pitch * 1.2, now, 0.5, snarl);
+      saw.frequency.exponentialRampToValueAtTime(pitch * 2, now + 0.25);
+      noise(now, 0.5, snarl);
+    },
     stop() {
       schedulers.delete(steps);
       bus.gain.setTargetAtTime(0, ctx.currentTime, 0.02);
       for (const s of [...voices, rasp, ...wobblers]) s.stop(ctx.currentTime + 0.1);
     },
+  };
+}
+
+const SKITTER_RANGE = 600; // world units within which an enemy's skittering can be heard
+
+/**
+ * Chitter: an enemy skittering on quick, irregular legs, heard only close
+ * by, with a trill of resonant clicks every few seconds that carries
+ * further, and a louder, rising rattle as it locks on. Each has its own pitch.
+ */
+function startChitter(at: Point): EnemySound {
+  const t = ctx.currentTime;
+  const where = place(at, enemyVolume);
+  const skitter = gain(0, where.gain);
+  const calls = gain(1, where.gain);
+  const voice = rand(2500, 4000); // Hz
+  let near = 0; // how close it is, 0 at SKITTER_RANGE to 1 on top of the listener
+  /** A run of `clicks` resonant clicks, pitched up through the run by `rise`, `spacing` seconds apart and quickening by `quicken`. */
+  const trill = (start: number, clicks: number, level: number, rise: number, spacing: number, quicken = 1) => {
+    for (let i = 0, ti = start; i < clicks; i++, ti += spacing * quicken ** i) {
+      const f = voice * (1 + (rise * i) / clicks) * rand(0.97, 1.03);
+      const env = hit(ti, level * rand(0.6, 1), 0.012, calls, 0.0005);
+      noise(ti, 0.03, filter("bandpass", f, 12, gain(4, env))); // a narrow band lets little through
+      osc("sine", f, ti, 0.03, gain(0.15, env));
+    }
+  };
+  let nextTick = t + rand(0, 0.1);
+  let nextCall = t + rand(1, 8);
+  const schedule = (from: number, to: number) => {
+    for (nextTick = Math.max(nextTick, from); nextTick < to; nextTick += rand(0.04, 0.12)) {
+      if (near < 0.01) continue; // too far to hear, so don't make it
+      const env = hit(nextTick, 0.5 * rand(0.3, 1), 0.006, skitter, 0.0005);
+      noise(nextTick, 0.02, filter("bandpass", voice * rand(0.6, 1.6), 3, env));
+    }
+    for (nextCall = Math.max(nextCall, from); nextCall < to; nextCall += rand(4, 10)) {
+      trill(nextCall, Math.round(rand(5, 10)), 0.5, rand(-0.2, 0.3), rand(0.025, 0.04));
+    }
+  };
+  schedulers.add(schedule);
+  return {
+    move(at) {
+      moveTo(where, at);
+      near = Math.max(0, 1 - distanceTo(at) / SKITTER_RANGE) ** 2;
+      skitter.gain.setTargetAtTime(near, ctx.currentTime, 0.05);
+    },
+    lockOn: () => trill(ctx.currentTime, 16, 0.9, 0.8, 0.035, 0.93),
+    stop() {
+      schedulers.delete(schedule);
+      skitter.gain.setTargetAtTime(0, ctx.currentTime, 0.02);
+    },
+  };
+}
+
+// Hum: one drone for all the enemies, from the nearest, silent beyond
+// HUM_RANGE and growing louder, higher, brighter and more agitated as it
+// closes in. It runs all the time, silent unless that's the style.
+const HUM_RANGE = 900; // world units
+const humWhere = place([0, 0], enemyVolume);
+const humLevel = gain(0, humWhere.gain);
+const humTremolo = gain(0.6, humLevel);
+const humTone = filter("lowpass", 300, 2, humTremolo);
+const humBassCut = filter("highpass", 150, 0.7, humTone); // small speakers can't play the bass
+const humVoices = [osc("sawtooth", 70, 0, null, humBassCut), osc("sawtooth", 70 * 1.012, 0, null, humBassCut)];
+const humWobbleDepth = gain(0.4);
+humWobbleDepth.connect(humTremolo.gain); // so it swings between 0.2 and 1
+const humWobble = osc("sine", 2, 0, null, humWobbleDepth);
+
+/** Sets where the nearest enemy is, if there is one, for the hum. */
+export function hearNearestEnemy(at: Point | null): void {
+  const closeness = at && enemyStyle === "hum" ? Math.max(0, 1 - distanceTo(at) / HUM_RANGE) : 0;
+  if (at) moveTo(humWhere, at, 0.1);
+  const t = ctx.currentTime;
+  humLevel.gain.setTargetAtTime(0.5 * closeness ** 1.5, t, 0.1);
+  for (const [i, voice] of humVoices.entries()) voice.frequency.setTargetAtTime(70 * (1 + closeness) * (i ? 1.012 : 1), t, 0.1);
+  humTone.frequency.setTargetAtTime(300 + 2500 * closeness ** 2, t, 0.1);
+  humWobble.frequency.setTargetAtTime(2 + 10 * closeness, t, 0.1);
+}
+
+/** An enemy that's heard only through the shared hum, but crackles with an electric zap as it locks on. */
+function startHumCues(at: Point): EnemySound {
+  const where = place(at, enemyVolume);
+  return {
+    move: (at) => moveTo(where, at),
+    lockOn() {
+      const t = ctx.currentTime;
+      const band = filter("bandpass", 300, 4, hit(t, 0.8, 0.25, where.gain));
+      band.frequency.setValueAtTime(300, t);
+      band.frequency.exponentialRampToValueAtTime(2500, t + 0.2);
+      const saw = osc("sawtooth", 110, t, 0.3, band);
+      saw.frequency.exponentialRampToValueAtTime(330, t + 0.2);
+      for (let i = 0; i < 6; i++) {
+        const ti = t + rand(0, 0.2);
+        noise(ti, 0.02, filter("highpass", 3000, 0.7, hit(ti, 0.3, 0.005, where.gain, 0.0005)));
+      }
+    },
+    stop() {},
   };
 }

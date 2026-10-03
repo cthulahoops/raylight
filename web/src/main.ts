@@ -1,6 +1,6 @@
 import { ARENA_EDGES, EXAMPLE_WALLS, type Point, type Segment, segment, splitCrossings, visibilityTriangles } from "./raylighting";
 import { type Color, type Disc, type Light, type Mark, Renderer } from "./renderer";
-import { type FlareSound, type Loop, hearFrom, playBounce, playCoin, playCratePickup, playLevelCleared, playShatter, playThrow, playTorchOut, setAudioPaused, setEnemyVolume, setVolume, startEnemySound, startFlareSound, unlockAudio } from "./audio";
+import { ENEMY_STYLES, type EnemySound, type FlareSound, hearFrom, hearNearestEnemy, playBounce, playCoin, playCratePickup, playLevelCleared, playShatter, playThrow, playTorchOut, setAudioPaused, setEnemyStyle, setEnemyVolume, setVolume, startEnemySound, startFlareSound, unlockAudio } from "./audio";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
 const renderer = await Renderer.create(canvas);
@@ -124,7 +124,9 @@ function randomClearPoint(clearance: number, others: Disc[] = [], playerKeepOut 
 interface Enemy {
   body: Disc;
   heading: number; // radians
-  sound: Loop;
+  sound: EnemySound;
+  target: Light | null; // the light it's heading for
+  sinceLockOn: number; // seconds since it last sounded locking on to a light
 }
 
 const enemies: Enemy[] = []; // filled from the controls below
@@ -138,11 +140,14 @@ function setEnemyCount(count: number): void {
   while (enemies.length < count) {
     const position = randomClearPoint(2 * player.radius, enemies.map((e) => e.body), ENEMY_SPAWN_KEEP_OUT);
     const body: Disc = { position, radius: player.radius, color: [0.4, 0.4, 0.4], lit: true };
-    enemies.push({ body, heading: Math.random() * 2 * Math.PI, sound: startEnemySound(position) });
+    enemies.push({ body, heading: Math.random() * 2 * Math.PI, sound: startEnemySound(position), target: null, sinceLockOn: Infinity });
   }
 }
 const ENEMY_SPEED = 150; // world units per second
 const ENEMY_TURN_RATE = Math.PI; // radians per second
+// An enemy sounds as it sets its sights on a light, but not again for a
+// while, so one hovering at the edge of a light doesn't keep on.
+const ENEMY_LOCK_ON_QUIET = 3; // seconds
 // Set from the controls below.
 let enemyLightThreshold = 0; // brightness that attracts an enemy
 let enemyAvoidRange = 0; // gap between enemies at which they start to veer apart
@@ -161,6 +166,12 @@ function moveEnemy(enemy: Enemy, dt: number, lights: Light[]): void {
     const b = renderer.brightnessAt(light, body.position);
     if (b > best) [best, target] = [b, light];
   }
+  enemy.sinceLockOn += dt;
+  if (target && !enemy.target && dt > 0 && enemy.sinceLockOn > ENEMY_LOCK_ON_QUIET) {
+    enemy.sound.lockOn();
+    enemy.sinceLockOn = 0;
+  }
+  enemy.target = target;
   let hx = Math.cos(enemy.heading);
   let hy = Math.sin(enemy.heading);
   let [wantX, wantY] = [hx, hy];
@@ -924,6 +935,8 @@ function draw(time: DOMHighResTimeStamp): void {
     moveEnemy(enemy, dt, lights);
     enemy.sound.move(enemy.body.position);
   }
+  const nearest = enemies.map((e) => e.body.position).sort((p, q) => distanceFromPlayer(p) - distanceFromPlayer(q))[0];
+  hearNearestEnemy(nearest ?? null);
   if (playerAlive && !won && enemies.some((e) => touchesPlayer(e.body))) killPlayer();
   const hovered = hoveredWall();
   const marks: Mark[] = [
@@ -1005,6 +1018,18 @@ slider("coin-shimmer", (v) => (coinShimmer = v));
 slider("crate-count", setCrateCount);
 slider("sound-volume", setVolume);
 slider("enemy-volume", setEnemyVolume);
+// Restarts the enemies' sounds in the new style.
+slider(
+  "enemy-sound",
+  (v) => {
+    setEnemyStyle(ENEMY_STYLES[v]);
+    for (const enemy of enemies) {
+      enemy.sound.stop();
+      enemy.sound = startEnemySound(enemy.body.position);
+    }
+  },
+  (v) => ENEMY_STYLES[v],
+);
 slider("grid-size", (v) => (gridSize = GRID_SIZES[v]), (v) => String(GRID_SIZES[v]));
 
 /** A colour picker's value, scaled by k (a picker can't exceed 1). */
