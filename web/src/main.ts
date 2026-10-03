@@ -567,7 +567,8 @@ window.addEventListener("keydown", (e) => {
   }
   if (e.code === "Space") {
     if (!e.repeat) {
-      if (isGameOver() || won) restart();
+      if (!welcomeNotice.hidden) start();
+      else if (isGameOver() || won) restart();
       else if (controls.hidden) throwFlare(); // not while paused
     }
     e.preventDefault();
@@ -864,14 +865,22 @@ gameOverNotice.addEventListener("click", restart);
 const levelClearedNotice = document.querySelector<HTMLDivElement>("#level-cleared")!;
 levelClearedNotice.addEventListener("click", restart);
 
+// The game waits, paused, behind the welcome notice until Space, or a tap on
+// the notice, starts it.
+const welcomeNotice = document.querySelector<HTMLDivElement>("#welcome")!;
+function start(): void {
+  welcomeNotice.hidden = true;
+}
+welcomeNotice.addEventListener("click", start);
+
 // Flares sputter and things move every frame, so render continuously rather
-// than on input. The game is paused while the settings are open: its clock
+// than on input. The game is paused while the welcome notice or the settings are up: its clock
 // stands still, but it still renders so walls being drawn show up.
 let lastTime: DOMHighResTimeStamp | null = null;
 let seconds = 0; // game time, which doesn't run while paused
 function draw(time: DOMHighResTimeStamp): void {
   const start = performance.now();
-  const paused = !controls.hidden;
+  const paused = !controls.hidden || !welcomeNotice.hidden;
   const dt = lastTime === null || paused ? 0 : Math.min((time - lastTime) / 1000, 0.1); // cap after a paused tab
   seconds += dt;
   movePlayer(dt);

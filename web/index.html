@@ -22,6 +22,12 @@
       /* Covers the game once the player's torch has gone out. */
       #game-over { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; background: #000a; color: #eee; cursor: pointer; }
       #game-over[hidden] { display: none; }
+      /* Covers the game, paused, until the player starts. */
+      #welcome { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem; background: #000c; color: #eee; cursor: pointer; text-align: center; }
+      #welcome[hidden] { display: none; }
+      #welcome h1 { margin: 0 0 0.5rem; font: 700 48px system-ui, sans-serif; letter-spacing: 0.1em; color: #ffcc4d; }
+      #welcome p { margin: 0; font-size: 18px; }
+      #welcome p:last-child { margin-top: 1rem; color: #ffd595; }
       #game-over h1 { margin: 0; font: 700 48px system-ui, sans-serif; letter-spacing: 0.1em; color: #f66; }
       #game-over p { margin: 0; font-size: 18px; }
       /* A banner over the top of the game once the level is won, leaving the rest playable. */
@@ -59,6 +65,13 @@
       <div id="hud">
         <output id="flares-held" title="Flares held (Space to throw)"></output>
         <output id="coins-collected" title="Coins collected"></output>
+      </div>
+      <div id="welcome">
+        <h1>RAYLIGHT</h1>
+        <p>Collect the gold.</p>
+        <p>Avoid the monsters.</p>
+        <p>Use Space to throw flares.</p>
+        <p>Press Space to start.</p>
       </div>
       <div id="game-over" hidden>
         <h1>GAME OVER</h1>
