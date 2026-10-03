@@ -1,6 +1,6 @@
 import { ARENA_EDGES, EXAMPLE_WALLS, type Point, type Segment, segment, splitCrossings, visibilityTriangles } from "./raylighting";
 import { type Color, type Disc, type Light, type Mark, Renderer } from "./renderer";
-import { hearFrom, playBounce, playCoin, playCratePickup, playLevelCleared, playShatter, playThrow, playTorchOut, setAudioPaused, setVolume, unlockAudio } from "./audio";
+import { type FlareSound, hearFrom, playBounce, playCoin, playCratePickup, playLevelCleared, playShatter, playThrow, playTorchOut, setAudioPaused, setVolume, startFlareSound, unlockAudio } from "./audio";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
 const renderer = await Renderer.create(canvas);
@@ -675,6 +675,7 @@ interface Flare {
   age: number; // seconds
   seed: number; // keeps flares' flicker out of step
   light: Light;
+  sound: FlareSound;
 }
 const flares: Flare[] = [];
 const FLARE_RADIUS = 6;
@@ -719,7 +720,8 @@ function launchFlare(angle: number, range: number): void {
   const velocity: Point = [Math.cos(angle) * flareSpeed, Math.sin(angle) * flareSpeed];
   const light: Light = { ...sweptLight(playerLight.position, [0, 0, 0]), height: FLARE_LIGHT_HEIGHT, falloffRate: 0.01 };
   const vz = (flareGravity * flightTime) / 2;
-  flares.push({ position: player.position, velocity, z: 0, vz, age: 0, seed: Math.random() * 100, light });
+  const sound = startFlareSound(player.position);
+  flares.push({ position: player.position, velocity, z: 0, vz, age: 0, seed: Math.random() * 100, light, sound });
 }
 
 /** Moves an airborne flare for dt, bouncing it off the floor, arena edge and walls. */
@@ -782,9 +784,11 @@ function updateFlares(dt: number, seconds: number): void {
     const fade = Math.min(1, (flareBurnTime - flare.age) / FLARE_FADE);
     const k = sputter(seconds, flare.seed) * Math.max(0, fade);
     flare.light.color = [flareColor[0] * k, flareColor[1] * k, flareColor[2] * k];
+    flare.sound.setLevel(k);
+    flare.sound.move(flare.position);
   }
   for (let i = flares.length - 1; i >= 0; i--) {
-    if (flares[i].age >= flareBurnTime) flares.splice(i, 1);
+    if (flares[i].age >= flareBurnTime) flares.splice(i, 1)[0].sound.stop();
   }
 }
 
@@ -1083,6 +1087,7 @@ function restart(): void {
   moveTarget = null;
   player.position = pushOutOfWalls(PLAYER_START, player.radius);
   followPlayer();
+  for (const flare of flares) flare.sound.stop();
   flares.length = 0;
   shards.length = 0;
   flaresHeld = FLARES_AT_START;

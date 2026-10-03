@@ -6,8 +6,11 @@ import type { Point } from "./raylighting";
 const ctx = new AudioContext();
 const master = ctx.createGain();
 const limiter = ctx.createDynamicsCompressor();
-limiter.threshold.value = -8;
-limiter.ratio.value = 6;
+limiter.threshold.value = -6;
+limiter.knee.value = 0;
+limiter.ratio.value = 20;
+limiter.attack.value = 0.001; // seconds; fast enough to catch sounds starting together
+limiter.release.value = 0.1;
 master.connect(limiter).connect(ctx.destination);
 
 export function setVolume(volume: number): void {
@@ -287,4 +290,66 @@ export function playLevelCleared(swell: number): void {
     osc("sine", f, ti, 1.3, env);
     osc("sine", f * 2, ti, 1.3, gain(0.15, env));
   });
+}
+
+// Loops schedule their events a little ahead of the audio clock, all from
+// one timer. JavaScript timers are too imprecise to time sounds by, so they
+// only decide what to schedule next, and the clock times them exactly. It
+// stands still while sound is suspended, so nothing piles up meanwhile.
+const LOOKAHEAD = 0.12; // seconds
+const schedulers = new Set<(from: number, to: number) => void>();
+let scheduledTo = 0;
+setInterval(() => {
+  const from = Math.max(scheduledTo, ctx.currentTime);
+  const to = ctx.currentTime + LOOKAHEAD;
+  if (to <= from) return;
+  for (const schedule of schedulers) schedule(from, to);
+  scheduledTo = to;
+}, 25);
+
+/** A sound that plays until stopped, following something that moves. */
+export interface Loop {
+  /** Places it at `at`, as heard from where the listener is now. */
+  move(at: Point): void;
+  stop(): void;
+}
+
+export interface FlareSound extends Loop {
+  /** Sets how brightly the flare is burning, 1 for full, so the sound sputters and fades with its light. */
+  setLevel(level: number): void;
+}
+
+const CRACKLE_RATE = 18; // a second, on average
+
+/** A flare lighting with a fizz, then burning with a hiss, a low roar and crackles at random. */
+export function startFlareSound(at: Point): FlareSound {
+  const t = ctx.currentTime;
+  const where = place(at);
+  const bus = gain(0.6, where.gain);
+  const level = gain(1, bus);
+  noise(t, 0.5, filter("highpass", 1500, 0.7, hit(t, 1.2, 0.4, bus, 0.01))); // lighting
+  const sources = [
+    noise(t, null, filter("bandpass", 2500, 0.7, gain(0.25, level))), // hiss
+    noise(t, null, filter("lowpass", 250, 0.7, gain(0.35, level))), // roar
+  ];
+  // Random gaps between independent events, so the crackles clump and pause
+  // naturally. Most are quiet, a few loud.
+  const gap = () => -Math.log(1 - Math.random()) / CRACKLE_RATE;
+  let next = t + gap();
+  const crackle = (from: number, to: number) => {
+    for (next = Math.max(next, from); next < to; next += gap()) {
+      const env = hit(next, 1.25 * Math.random() ** 2, rand(0.003, 0.02), level, 0.0005);
+      noise(next, 0.05, filter("bandpass", rand(1200, 6000), 1.5, env));
+    }
+  };
+  schedulers.add(crackle);
+  return {
+    move: (at) => moveTo(where, at),
+    setLevel: (k) => level.gain.setTargetAtTime(k, ctx.currentTime, 0.02),
+    stop() {
+      schedulers.delete(crackle);
+      bus.gain.setTargetAtTime(0, ctx.currentTime, 0.02);
+      for (const s of sources) s.stop(ctx.currentTime + 0.1);
+    },
+  };
 }
